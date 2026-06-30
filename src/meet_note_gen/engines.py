@@ -10,6 +10,12 @@ ENGINE_NAMES = {
     "whisper": "Whisper large-v3-turbo Q5",
 }
 
+ENGINE_HOME_PAGES = {
+    "qwen3": "https://github.com/antirez/qwen-asr",
+    "sensevoice": "https://k2-fsa.github.io/sherpa/onnx/sense-voice/index.html",
+    "whisper": "https://github.com/ggml-org/whisper.cpp",
+}
+
 
 @dataclass(frozen=True)
 class EngineConfig:

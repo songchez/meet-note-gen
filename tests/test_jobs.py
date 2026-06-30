@@ -12,7 +12,9 @@ class JobTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             job = create_job(Path(tmp), "meeting.mp3", TimeRange(0, 1200), 600, ["qwen3"])
             state = json.loads((job.root / "state.json").read_text(encoding="utf-8"))
+            input_state = json.loads((job.root / "input.json").read_text(encoding="utf-8"))
             self.assertEqual(state["input_path"], "meeting.mp3")
+            self.assertEqual(input_state["input_path"], "meeting.mp3")
             self.assertEqual(state["chunks"][0]["name"], "chunk_001")
 
     def test_pending_chunks_skip_completed(self):
@@ -24,6 +26,15 @@ class JobTests(unittest.TestCase):
                 [chunk["name"] for chunk in loaded.pending_chunks("qwen3")],
                 ["chunk_002"],
             )
+
+    def test_mark_done_writes_chunk_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            job = create_job(Path(tmp), "meeting.mp3", TimeRange(0, 600), 600, ["qwen3"])
+            job.mark_done("qwen3", "chunk_001", "hello")
+            data = json.loads((job.root / "results" / "qwen3" / "chunk_001.json").read_text(encoding="utf-8"))
+            self.assertEqual(data["text"], "hello")
+            self.assertEqual(data["start"], 0)
+            self.assertEqual(data["end"], 600)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,11 @@ from pathlib import Path
 from meet_note_gen.audio import (
     TimeRange,
     build_chunk_commands,
+    build_export_segment_commands,
+    build_ffprobe_duration_command,
     build_waveform_image_command,
+    parse_duration,
+    selected_range,
     split_evenly,
 )
 
@@ -41,6 +45,44 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(command[:4], ["ffmpeg", "-y", "-i", "in.mp3"])
         self.assertTrue(any("showwavespic=s=1200x180" in part for part in command))
         self.assertEqual(command[-3:], ["-frames:v", "1", "waveform.png"])
+
+    def test_export_segment_commands_split_selected_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            commands = build_export_segment_commands("in.mp3", Path(tmp), TimeRange(60, 180), 3)
+            self.assertEqual(len(commands), 3)
+            self.assertEqual(commands[0][0:6], ["ffmpeg", "-y", "-ss", "60.000", "-t", "40.000"])
+            self.assertEqual(commands[-1][-1], str(Path(tmp) / "segment_003.wav"))
+
+    def test_export_segment_commands_allow_single_trimmed_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            commands = build_export_segment_commands("in.mp3", Path(tmp), TimeRange(60, 180), 1)
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0][0:6], ["ffmpeg", "-y", "-ss", "60.000", "-t", "120.000"])
+            self.assertEqual(commands[0][-1], str(Path(tmp) / "segment_001.wav"))
+
+    def test_ffprobe_duration_command_is_machine_readable(self):
+        self.assertEqual(
+            build_ffprobe_duration_command("in.mp3"),
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                "in.mp3",
+            ],
+        )
+
+    def test_parse_duration_rejects_bad_ffprobe_output(self):
+        self.assertEqual(parse_duration("123.456\n"), 123.456)
+        with self.assertRaisesRegex(ValueError, "Could not read audio duration"):
+            parse_duration("N/A")
+
+    def test_selected_range_applies_cut_last(self):
+        self.assertEqual(selected_range(600, 60, 0, 120), TimeRange(60, 480))
+        self.assertEqual(selected_range(600, 60, 300, 0), TimeRange(60, 300))
 
 
 if __name__ == "__main__":

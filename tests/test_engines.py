@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from meet_note_gen.engines import EngineConfig, build_command, validate_engine
+from meet_note_gen.engines import ENGINE_HOME_PAGES, ENGINE_NAMES, EngineConfig, build_command, validate_engine
 
 
 class EngineTests(unittest.TestCase):
@@ -41,6 +41,9 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(command[:3], [str(exe), "-m", str(model)])
             self.assertIn("-l", command)
             self.assertIn("ko", command)
+
+    def test_every_engine_has_install_page(self):
+        self.assertEqual(set(ENGINE_HOME_PAGES), set(ENGINE_NAMES))
 
 
 if __name__ == "__main__":

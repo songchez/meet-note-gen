@@ -35,6 +35,21 @@ class Job:
         result_dir.mkdir(parents=True, exist_ok=True)
         output_path = result_dir / f"{chunk_name}.txt"
         output_path.write_text(text, encoding="utf-8")
+        chunk = next(item for item in self.state["chunks"] if item["name"] == chunk_name)
+        (result_dir / f"{chunk_name}.json").write_text(
+            json.dumps(
+                {
+                    "engine": engine_id,
+                    "chunk": chunk_name,
+                    "start": chunk["start"],
+                    "end": chunk["end"],
+                    "text": text,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         self.state.setdefault("results", {}).setdefault(engine_id, {})[chunk_name] = "done"
         self.save()
         return output_path
@@ -71,4 +86,17 @@ def create_job(
         },
     )
     job.save()
+    (root / "input.json").write_text(
+        json.dumps(
+            {
+                "input_path": str(input_path),
+                "source_range": {"start": source_range.start, "end": source_range.end},
+                "chunk_seconds": chunk_seconds,
+                "engine_ids": engine_ids,
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     return job
