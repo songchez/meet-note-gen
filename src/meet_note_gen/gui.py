@@ -68,6 +68,8 @@ def _engine_status_text(status: EngineStatus) -> str:
         return "준비됨"
     if status.message == "Choose runner file":
         return "Runner 파일 선택 필요"
+    if status.message == "Choose Windows runner (.exe)":
+        return "Windows 실행파일(.exe) 선택 필요"
     if status.message == "Choose model path":
         return "모델 선택 필요"
     return status.message
@@ -768,7 +770,7 @@ def run() -> int:
             return item
 
         def choose_executable(self, engine_id: str) -> None:
-            path, _ = QFileDialog.getOpenFileName(self, "Choose runner file")
+            path, _ = QFileDialog.getOpenFileName(self, "Runner 파일 선택", "", "Windows Runner (*.exe *.cmd *.bat);;All Files (*)")
             if path:
                 self.config.setdefault("engines", {}).setdefault(engine_id, {})["executable"] = path
                 _save_config(self.config)

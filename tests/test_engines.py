@@ -28,6 +28,17 @@ class EngineTests(unittest.TestCase):
             self.assertFalse(status.ok)
             self.assertEqual(status.message, "Choose model path")
 
+    def test_non_windows_runner_file_is_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = root / "model.bin"
+            runner.write_text("", encoding="utf-8")
+            model = root / "model"
+            model.mkdir()
+            status = validate_engine(EngineConfig("qwen3", runner, model))
+            self.assertFalse(status.ok)
+            self.assertEqual(status.message, "Choose Windows runner (.exe)")
+
     def test_whisper_command_contains_model_and_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

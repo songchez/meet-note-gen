@@ -10,6 +10,10 @@ from meet_note_gen.runner import CommandResult
 from meet_note_gen.transcription import merge_transcript, transcribe_job
 
 
+class WinError193(OSError):
+    winerror = 193
+
+
 class TranscriptionTests(unittest.TestCase):
     def test_transcribe_job_marks_stdout_chunks_done(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,6 +68,20 @@ class TranscriptionTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "Job stopped"):
                 transcribe_job(job, config, run=lambda command, cwd: CommandResult(command, 0, "", ""), prepare_chunks=False, should_stop=lambda: True)
+
+    def test_winerror_193_has_actionable_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            job = create_job(root, "meeting.mp3", TimeRange(0, 600), 600, ["qwen3"])
+            config = EngineConfig("qwen3", root / "runner.exe", root / "model")
+            config.executable.write_text("", encoding="utf-8")
+            config.model_path.mkdir()
+
+            def run(command, cwd):
+                raise WinError193("%1 is not a valid Win32 application")
+
+            with self.assertRaisesRegex(RuntimeError, "Windows runner"):
+                transcribe_job(job, config, run=run, prepare_chunks=False)
 
 
 if __name__ == "__main__":

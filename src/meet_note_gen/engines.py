@@ -7,6 +7,7 @@ from .model_catalog import catalog_entries
 
 ENGINE_NAMES = {entry.engine_id: entry.name for entry in catalog_entries()}
 ENGINE_HOME_PAGES = {entry.engine_id: entry.download_url for entry in catalog_entries()}
+RUNNER_SUFFIXES = {".exe", ".cmd", ".bat"}
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,8 @@ def validate_engine(config: EngineConfig) -> EngineStatus:
         return EngineStatus(False, f"Unknown engine: {config.engine_id}")
     if _path_is_empty(config.executable) or not config.executable.is_file():
         return EngineStatus(False, "Choose runner file")
+    if config.executable.suffix.lower() not in RUNNER_SUFFIXES:
+        return EngineStatus(False, "Choose Windows runner (.exe)")
     if _path_is_empty(config.model_path) or not config.model_path.exists():
         return EngineStatus(False, "Choose model path")
     return EngineStatus(True, "Ready")

@@ -35,7 +35,12 @@ def transcribe_job(
         on_log(f"{engine_id}: transcribing {chunk['name']}")
         output_stem = job.root / "results" / engine_id / chunk["name"]
         output_stem.parent.mkdir(parents=True, exist_ok=True)
-        result = run(build_command(config, chunk["path"], output_stem), job.root)
+        try:
+            result = run(build_command(config, chunk["path"], output_stem), job.root)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 193:
+                raise RuntimeError("Windows runner 파일이 아닙니다. 모델 설정에서 .exe runner를 다시 선택하세요.") from exc
+            raise
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or f"{engine_id} failed on {chunk['name']}")
         job.mark_done(engine_id, chunk["name"], _read_engine_text(output_stem, result))
