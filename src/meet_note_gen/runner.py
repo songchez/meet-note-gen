@@ -19,6 +19,8 @@ def run_command(command: list[str], cwd: str | Path) -> CommandResult:
         cwd=str(cwd),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     return CommandResult(command, completed.returncode, completed.stdout, completed.stderr)

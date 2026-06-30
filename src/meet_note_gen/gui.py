@@ -18,6 +18,7 @@ from .model_catalog import catalog_entries
 from .model_downloader import download_model
 from .paths import ensure_app_dirs
 from .recording import next_recording_path
+from .runner import run_command
 from .transcription import transcribe_job
 
 
@@ -569,11 +570,9 @@ def run() -> int:
                 return
             self.total_duration = 0
             self.set_editing_enabled(False)
-            result = subprocess.run(
+            result = run_command(
                 build_ffprobe_duration_command(self.input_path),
-                capture_output=True,
-                text=True,
-                check=False,
+                ensure_app_dirs(),
             )
             if result.returncode != 0:
                 self.log.appendPlainText("Could not read duration. Check ffprobe in PATH.")
@@ -595,7 +594,7 @@ def run() -> int:
                 return
             output_path = ensure_app_dirs() / "waveform-preview.png"
             command = build_waveform_image_command(self.input_path, output_path, 1600, 220)
-            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            result = run_command(command, ensure_app_dirs())
             if result.returncode != 0:
                 self.waveform.setText(str(self.input_path))
                 self.log.appendPlainText("Waveform preview failed. Check ffmpeg in PATH.")
@@ -646,7 +645,7 @@ def run() -> int:
                 )
                 for command in commands:
                     self.log.appendPlainText(f"Exporting: {Path(command[-1]).name}")
-                    result = subprocess.run(command, capture_output=True, text=True, check=False)
+                    result = run_command(command, ensure_app_dirs())
                     if result.returncode != 0:
                         raise RuntimeError(result.stderr.strip() or "ffmpeg export failed")
             except Exception as exc:  # noqa: BLE001 - show actionable UI error.
