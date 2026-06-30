@@ -26,12 +26,16 @@ class EngineStatus:
 
 def validate_engine(config: EngineConfig) -> EngineStatus:
     if config.engine_id not in ENGINE_NAMES:
-        return EngineStatus(False, f"unknown engine: {config.engine_id}")
-    if not config.executable.exists():
-        return EngineStatus(False, "executable missing")
-    if not config.model_path.exists():
-        return EngineStatus(False, "model path missing")
-    return EngineStatus(True, "ready")
+        return EngineStatus(False, f"Unknown engine: {config.engine_id}")
+    if _path_is_empty(config.executable) or not config.executable.is_file():
+        return EngineStatus(False, "Choose runner file")
+    if _path_is_empty(config.model_path) or not config.model_path.exists():
+        return EngineStatus(False, "Choose model path")
+    return EngineStatus(True, "Ready")
+
+
+def _path_is_empty(path: Path) -> bool:
+    return str(path) in ("", ".")
 
 
 def build_command(config: EngineConfig, audio_path: str | Path, output_stem: str | Path) -> list[str]:

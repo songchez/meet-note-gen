@@ -2,7 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from meet_note_gen.audio import TimeRange, build_chunk_commands, split_evenly
+from meet_note_gen.audio import (
+    TimeRange,
+    build_chunk_commands,
+    build_waveform_image_command,
+    split_evenly,
+)
 
 
 class AudioTests(unittest.TestCase):
@@ -30,6 +35,12 @@ class AudioTests(unittest.TestCase):
                 commands[0][-6:],
                 ["-vn", "-ac", "1", "-ar", "16000", str(output_dir / "chunk_001.wav")],
             )
+
+    def test_waveform_image_command_outputs_png_preview(self):
+        command = build_waveform_image_command("in.mp3", "waveform.png", 1200, 180)
+        self.assertEqual(command[:4], ["ffmpeg", "-y", "-i", "in.mp3"])
+        self.assertTrue(any("showwavespic=s=1200x180" in part for part in command))
+        self.assertEqual(command[-3:], ["-frames:v", "1", "waveform.png"])
 
 
 if __name__ == "__main__":

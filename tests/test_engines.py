@@ -12,7 +12,21 @@ class EngineTests(unittest.TestCase):
             config = EngineConfig("qwen3", root / "missing.exe", root / "model")
             status = validate_engine(config)
             self.assertFalse(status.ok)
-            self.assertIn("executable missing", status.message)
+            self.assertEqual(status.message, "Choose runner file")
+
+    def test_empty_paths_are_invalid(self):
+        status = validate_engine(EngineConfig("qwen3", Path(""), Path("")))
+        self.assertFalse(status.ok)
+        self.assertEqual(status.message, "Choose runner file")
+
+    def test_missing_model_is_invalid_after_runner_selected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe = root / "qwen_asr.exe"
+            exe.write_text("", encoding="utf-8")
+            status = validate_engine(EngineConfig("qwen3", exe, Path("")))
+            self.assertFalse(status.ok)
+            self.assertEqual(status.message, "Choose model path")
 
     def test_whisper_command_contains_model_and_output(self):
         with tempfile.TemporaryDirectory() as tmp:

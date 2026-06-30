@@ -72,3 +72,24 @@ def build_chunk_commands(
         ]
         for index, item in enumerate(chunk_ranges(source_range, chunk_seconds), 1)
     ]
+
+
+def build_waveform_image_command(
+    input_path: str | Path,
+    output_path: str | Path,
+    width: int = 1600,
+    height: int = 220,
+) -> list[str]:
+    if width <= 0 or height <= 0:
+        raise ValueError("waveform dimensions must be positive")
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-filter_complex",
+        f"aformat=channel_layouts=mono,showwavespic=s={width}x{height}:colors=#4c78a8",
+        "-frames:v",
+        "1",
+        str(output_path),
+    ]
