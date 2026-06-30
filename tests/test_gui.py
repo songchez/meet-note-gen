@@ -1,9 +1,11 @@
 import unittest
 from pathlib import Path
 
+from meet_note_gen.engines import EngineStatus
 from meet_note_gen.gui import (
     PRIMARY_ACTION_TEXT,
     _display_path,
+    _engine_status_text,
     _model_status_text,
     _open_path_command,
     _qt_import_error_message,
@@ -32,6 +34,11 @@ class GuiTests(unittest.TestCase):
     def test_model_status_text_guides_missing_setup(self):
         self.assertEqual(_model_status_text("Qwen3-ASR 0.6B", True), "모델: Qwen3-ASR 0.6B 준비됨")
         self.assertEqual(_model_status_text("Qwen3-ASR 0.6B", False), "모델 설정 필요")
+
+    def test_engine_status_text_is_user_facing(self):
+        self.assertEqual(_engine_status_text(EngineStatus(True, "Ready")), "준비됨")
+        self.assertEqual(_engine_status_text(EngineStatus(False, "Choose runner file")), "Runner 파일 선택 필요")
+        self.assertEqual(_engine_status_text(EngineStatus(False, "Choose model path")), "모델 선택 필요")
 
     def test_open_path_command_uses_platform_file_manager(self):
         self.assertEqual(_open_path_command("win32", "C:/out"), ["explorer", "C:/out"])

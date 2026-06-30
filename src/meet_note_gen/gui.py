@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import webbrowser
 from pathlib import Path
 
 from .audio import (
@@ -13,9 +12,10 @@ from .audio import (
     parse_duration,
     selected_range,
 )
-from .engines import ENGINE_NAMES, EngineConfig, validate_engine
+from .engines import ENGINE_NAMES, EngineConfig, EngineStatus, validate_engine
 from .jobs import Job, create_job
 from .model_catalog import catalog_entries
+from .model_downloader import download_model
 from .paths import ensure_app_dirs
 from .recording import next_recording_path
 from .transcription import transcribe_job
@@ -60,6 +60,16 @@ def _qt_import_error_message(exc: BaseException) -> str:
 
 def _model_status_text(engine_name: str, ready: bool) -> str:
     return f"모델: {engine_name} 준비됨" if ready else "모델 설정 필요"
+
+
+def _engine_status_text(status: EngineStatus) -> str:
+    if status.ok:
+        return "준비됨"
+    if status.message == "Choose runner file":
+        return "Runner 파일 선택 필요"
+    if status.message == "Choose model path":
+        return "모델 선택 필요"
+    return status.message
 
 
 def _open_path_command(platform: str, path: str | Path) -> list[str]:
@@ -209,6 +219,24 @@ def run() -> int:
             except Exception as exc:  # noqa: BLE001 - surface tool/runtime errors to the UI.
                 self.failed.emit(str(exc))
 
+    class ModelDownloadWorker(QObject):
+        log = Signal(str)
+        failed = Signal(str)
+        finished = Signal(str, str)
+
+        def __init__(self, engine_id: str) -> None:
+            super().__init__()
+            self.engine_id = engine_id
+
+        def run(self) -> None:
+            try:
+                entry = next(item for item in catalog_entries() if item.engine_id == self.engine_id)
+                self.log.emit(f"{entry.name}: 모델 다운로드 시작")
+                path = download_model(ensure_app_dirs(), entry)
+                self.finished.emit(self.engine_id, str(path))
+            except Exception as exc:  # noqa: BLE001 - show download errors in the UI.
+                self.failed.emit(str(exc))
+
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
@@ -217,6 +245,8 @@ def run() -> int:
             self.total_duration = 0.0
             self.job_thread: QThread | None = None
             self.job_worker: JobWorker | None = None
+            self.download_thread: QThread | None = None
+            self.download_worker: ModelDownloadWorker | None = None
             self.recording_path: Path | None = None
             self.recording_finishing = False
             self.last_transcript_path: Path | None = None
@@ -663,7 +693,7 @@ def run() -> int:
                 for row, catalog in enumerate(catalog_entries()):
                     config = self.engine_config(catalog.engine_id)
                     status = validate_engine(config)
-                    status_text = "사용 중" if status.ok and selected == catalog.engine_id else status.message
+                    status_text = "사용 중" if status.ok and selected == catalog.engine_id else _engine_status_text(status)
                     table.setItem(row, 0, self.read_only_item(catalog.name))
                     table.setItem(row, 1, self.read_only_item(status_text))
                     table.setItem(row, 2, self.read_only_item(catalog.summary))
@@ -671,12 +701,13 @@ def run() -> int:
                     buttons = QGridLayout(action)
                     buttons.setContentsMargins(0, 0, 0, 0)
                     use_button = QPushButton("사용")
-                    download_button = QPushButton("다운로드 페이지")
+                    download_button = QPushButton("모델 다운로드")
                     runner_button = QPushButton(catalog.runner_label)
                     model_button = QPushButton(catalog.model_label)
                     use_button.setEnabled(status.ok)
                     use_button.clicked.connect(lambda _=False, key=catalog.engine_id: set_selected(key))
-                    download_button.clicked.connect(lambda _=False, url=catalog.download_url: webbrowser.open(url))
+                    download_button.setEnabled(self.download_thread is None)
+                    download_button.clicked.connect(lambda _=False, key=catalog.engine_id: self.start_model_download(key))
                     runner_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_executable(key), refresh_table()))
                     model_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_model(key), refresh_table()))
                     buttons.addWidget(use_button, 0, 0)
@@ -691,6 +722,44 @@ def run() -> int:
             layout.addWidget(close_button)
             dialog.exec()
             self.refresh_engines()
+
+        def start_model_download(self, engine_id: str) -> None:
+            if self.download_thread is not None:
+                QMessageBox.information(self, "다운로드 중", "이미 모델 다운로드가 진행 중입니다.")
+                return
+            self.download_thread = QThread()
+            self.download_worker = ModelDownloadWorker(engine_id)
+            self.download_worker.moveToThread(self.download_thread)
+            self.download_thread.started.connect(self.download_worker.run)
+            self.download_worker.log.connect(self.log.appendPlainText)
+            self.download_worker.failed.connect(self.model_download_failed)
+            self.download_worker.finished.connect(self.model_download_finished)
+            self.download_worker.failed.connect(self.download_thread.quit)
+            self.download_worker.finished.connect(self.download_thread.quit)
+            self.download_thread.finished.connect(self.download_worker.deleteLater)
+            self.download_thread.finished.connect(self.download_thread.deleteLater)
+            self.download_thread.finished.connect(self.clear_model_download)
+            self.download_thread.start()
+
+        def model_download_failed(self, message: str) -> None:
+            self.log.appendPlainText(f"모델 다운로드 실패: {message}")
+            QMessageBox.warning(self, "모델 다운로드 실패", message)
+
+        def model_download_finished(self, engine_id: str, path: str) -> None:
+            self.config.setdefault("engines", {}).setdefault(engine_id, {})["model_path"] = path
+            self.config["selected_engine_id"] = engine_id
+            _save_config(self.config)
+            self.log.appendPlainText(f"모델 다운로드 완료: {path}")
+            self.refresh_engines()
+            status = validate_engine(self.engine_config(engine_id))
+            if status.ok:
+                QMessageBox.information(self, "모델 다운로드 완료", "모델이 준비됐습니다.")
+            else:
+                QMessageBox.information(self, "모델 다운로드 완료", f"모델은 저장했습니다. {_engine_status_text(status)} 단계가 남았습니다.")
+
+        def clear_model_download(self) -> None:
+            self.download_worker = None
+            self.download_thread = None
 
         def read_only_item(self, text: str, tooltip: str = "") -> QTableWidgetItem:
             item = QTableWidgetItem(text)

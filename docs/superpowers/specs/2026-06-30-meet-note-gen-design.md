@@ -83,7 +83,7 @@ The app owns audio preparation, UI, job state, and file output. Each ASR model i
 
 The app installer includes the GUI and Python runtime dependencies only. The model manager can:
 
-- Download known engine/model packages.
+- Download known model packages.
 - Let the user choose an existing engine/model folder.
 - Validate required files before running.
 

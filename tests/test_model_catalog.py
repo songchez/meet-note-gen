@@ -13,6 +13,8 @@ class ModelCatalogTests(unittest.TestCase):
             self.assertTrue(entry.name)
             self.assertTrue(entry.summary)
             self.assertTrue(entry.download_url.startswith("https://"))
+            self.assertTrue(entry.hf_repo_id)
+            self.assertTrue(entry.local_dir)
             self.assertTrue(entry.runner_label)
             self.assertTrue(entry.model_label)
 
