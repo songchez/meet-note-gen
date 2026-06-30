@@ -3,18 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .model_catalog import catalog_entries
 
-ENGINE_NAMES = {
-    "qwen3": "Qwen3-ASR 0.6B",
-    "sensevoice": "SenseVoiceSmall INT8",
-    "whisper": "Whisper large-v3-turbo Q5",
-}
-
-ENGINE_HOME_PAGES = {
-    "qwen3": "https://github.com/antirez/qwen-asr",
-    "sensevoice": "https://k2-fsa.github.io/sherpa/onnx/sense-voice/index.html",
-    "whisper": "https://github.com/ggml-org/whisper.cpp",
-}
+ENGINE_NAMES = {entry.engine_id: entry.name for entry in catalog_entries()}
+ENGINE_HOME_PAGES = {entry.engine_id: entry.download_url for entry in catalog_entries()}
 
 
 @dataclass(frozen=True)

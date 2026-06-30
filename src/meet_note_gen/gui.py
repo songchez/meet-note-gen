@@ -13,11 +13,15 @@ from .audio import (
     parse_duration,
     selected_range,
 )
-from .engines import ENGINE_HOME_PAGES, ENGINE_NAMES, EngineConfig, validate_engine
+from .engines import ENGINE_NAMES, EngineConfig, validate_engine
 from .jobs import Job, create_job
+from .model_catalog import catalog_entries
 from .paths import ensure_app_dirs
 from .recording import next_recording_path
 from .transcription import transcribe_job
+
+
+PRIMARY_ACTION_TEXT = "스크립트 추출"
 
 
 def _config_path() -> Path:
@@ -54,9 +58,90 @@ def _qt_import_error_message(exc: BaseException) -> str:
     )
 
 
+def _model_status_text(engine_name: str, ready: bool) -> str:
+    return f"모델: {engine_name} 준비됨" if ready else "모델 설정 필요"
+
+
+def _open_path_command(platform: str, path: str | Path) -> list[str]:
+    value = str(path)
+    if platform.startswith("win"):
+        return ["explorer", value]
+    if platform == "darwin":
+        return ["open", value]
+    return ["xdg-open", value]
+
+
+def _open_path(path: str | Path) -> None:
+    subprocess.Popen(_open_path_command(sys.platform, path))  # noqa: S603 - local file manager command.
+
+
+APP_STYLESHEET = """
+QWidget {
+    background: #f7f8fa;
+    color: #202124;
+    font-size: 12px;
+}
+QLabel#title {
+    font-size: 20px;
+    font-weight: 700;
+}
+QGroupBox {
+    background: #ffffff;
+    border: 1px solid #d7dbe2;
+    border-radius: 6px;
+    margin-top: 12px;
+    padding: 10px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    font-weight: 600;
+}
+QPushButton {
+    background: #ffffff;
+    border: 1px solid #c8ced8;
+    border-radius: 5px;
+    padding: 6px 12px;
+}
+QPushButton:hover {
+    background: #eef4ff;
+    border-color: #8ab4ff;
+}
+QPushButton:disabled {
+    background: #eef0f3;
+    color: #8b95a1;
+}
+QPushButton#primaryAction {
+    background: #2563eb;
+    color: #ffffff;
+    border: 1px solid #1d4ed8;
+    border-radius: 6px;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 14px 42px;
+}
+QPushButton#primaryAction:hover {
+    background: #1d4ed8;
+}
+QPlainTextEdit, QTableWidget, QComboBox, QDoubleSpinBox, QSpinBox {
+    background: #ffffff;
+    border: 1px solid #c8ced8;
+    border-radius: 4px;
+    padding: 4px;
+}
+QLabel#waveform {
+    background: #ffffff;
+    border: 1px dashed #b7bfcc;
+    border-radius: 6px;
+    color: #667085;
+}
+"""
+
+
 def run() -> int:
     try:
-        from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal
+        from PySide6.QtCore import QObject, QThread, QTimer, Qt, QUrl, Signal
         from PySide6.QtGui import QPixmap
         from PySide6.QtMultimedia import (
             QAudioInput,
@@ -70,9 +155,11 @@ def run() -> int:
             QAbstractItemView,
             QApplication,
             QComboBox,
+            QDialog,
             QDoubleSpinBox,
             QFileDialog,
             QGridLayout,
+            QGroupBox,
             QHBoxLayout,
             QLabel,
             QMainWindow,
@@ -132,8 +219,9 @@ def run() -> int:
             self.job_worker: JobWorker | None = None
             self.recording_path: Path | None = None
             self.recording_finishing = False
+            self.last_transcript_path: Path | None = None
             self.setWindowTitle("Meet Note Gen")
-            self.resize(960, 620)
+            self.resize(1080, 720)
 
             self.audio_output = QAudioOutput()
             self.player = QMediaPlayer()
@@ -151,14 +239,51 @@ def run() -> int:
             root = QWidget()
             layout = QVBoxLayout(root)
 
-            toolbar = QHBoxLayout()
-            self.open_button = QPushButton("Open Audio")
-            self.record_button = QPushButton("Record")
-            self.stop_record_button = QPushButton("Stop Recording")
-            self.play_button = QPushButton("Play")
-            self.stop_button = QPushButton("Stop Playback")
-            self.export_button = QPushButton("Export Segments")
+            header = QHBoxLayout()
+            title = QLabel("Meet Note Gen")
+            title.setObjectName("title")
+            self.model_settings_button = QPushButton("모델 설정")
+            header.addWidget(title)
+            header.addStretch(1)
+            header.addWidget(self.model_settings_button)
+            layout.addLayout(header)
+
+            input_box = QGroupBox("음성 파일")
+            input_layout = QVBoxLayout(input_box)
+            input_actions = QHBoxLayout()
+            self.open_button = QPushButton("음성 파일 선택")
+            self.record_button = QPushButton("녹음 시작")
+            self.stop_record_button = QPushButton("녹음 종료")
             self.stop_record_button.setEnabled(False)
+            input_actions.addWidget(self.open_button)
+            input_actions.addWidget(self.record_button)
+            input_actions.addWidget(self.stop_record_button)
+            input_actions.addStretch(1)
+            input_layout.addLayout(input_actions)
+            self.file_label = QLabel("파일을 선택하거나 창에 끌어다 놓으세요.")
+            self.file_label.setAccessibleName("Selected audio file")
+            self.file_meta_label = QLabel("길이: -")
+            self.model_status_label = QLabel(_model_status_text(ENGINE_NAMES["qwen3"], False))
+            status_row = QHBoxLayout()
+            status_row.addWidget(self.file_label)
+            status_row.addStretch(1)
+            status_row.addWidget(self.file_meta_label)
+            status_row.addWidget(self.model_status_label)
+            input_layout.addLayout(status_row)
+            layout.addWidget(input_box)
+
+            self.waveform = QLabel("음성 파일을 선택하거나 여기에 끌어다 놓으세요.")
+            self.waveform.setAlignment(Qt.AlignCenter)
+            self.waveform.setAccessibleName("Waveform preview")
+            self.waveform.setObjectName("waveform")
+            self.waveform.setMinimumHeight(170)
+            self.waveform.setScaledContents(True)
+            layout.addWidget(self.waveform)
+
+            playback_row = QHBoxLayout()
+            self.play_button = QPushButton("재생")
+            self.stop_button = QPushButton("정지")
+            self.export_button = QPushButton("구간 내보내기")
             self.play_button.setEnabled(False)
             self.stop_button.setEnabled(False)
             self.export_button.setEnabled(False)
@@ -167,52 +292,39 @@ def run() -> int:
             self.play_button.setToolTip("Play the opened audio.")
             self.stop_button.setToolTip("Stop playback.")
             self.export_button.setToolTip("Export the selected range as split WAV segments.")
-            self.model_combo = QComboBox()
-            self.model_combo.setAccessibleName("ASR model")
-            for engine_id, name in ENGINE_NAMES.items():
-                self.model_combo.addItem(name, engine_id)
-            toolbar.addWidget(self.open_button)
-            toolbar.addWidget(self.record_button)
-            toolbar.addWidget(self.stop_record_button)
-            toolbar.addWidget(self.play_button)
-            toolbar.addWidget(self.stop_button)
-            toolbar.addWidget(self.export_button)
-            toolbar.addStretch(1)
-            model_label = QLabel("Model")
-            model_label.setBuddy(self.model_combo)
-            toolbar.addWidget(model_label)
-            toolbar.addWidget(self.model_combo)
-            layout.addLayout(toolbar)
+            playback_row.addWidget(self.play_button)
+            playback_row.addWidget(self.stop_button)
+            playback_row.addWidget(self.export_button)
+            playback_row.addStretch(1)
+            layout.addLayout(playback_row)
 
-            self.waveform = QLabel("Open an audio file to generate a waveform preview.")
-            self.waveform.setAlignment(Qt.AlignCenter)
-            self.waveform.setAccessibleName("Waveform preview")
-            self.waveform.setMinimumHeight(180)
-            self.waveform.setStyleSheet("border: 1px solid #888; background: #111; color: #ddd;")
-            self.waveform.setScaledContents(True)
-            layout.addWidget(self.waveform)
-
+            self.advanced_box = QGroupBox("고급 옵션")
+            self.advanced_box.setCheckable(True)
+            self.advanced_box.setChecked(False)
+            advanced_layout = QVBoxLayout(self.advanced_box)
+            self.advanced_content = QWidget()
+            advanced_content_layout = QVBoxLayout(self.advanced_content)
             controls = QHBoxLayout()
-            controls.addWidget(QLabel("Trim"))
+            controls.addWidget(QLabel("자르기"))
             self.start_spin = self.time_spin()
             self.end_spin = self.time_spin()
             self.cut_last_spin = self.time_spin()
-            self.set_start_button = QPushButton("Set Start")
-            self.set_end_button = QPushButton("Set End")
-            self.cut_last_button = QPushButton("Cut Last")
+            self.set_start_button = QPushButton("시작 지정")
+            self.set_end_button = QPushButton("끝 지정")
+            self.cut_last_button = QPushButton("끝에서 자르기")
             for widget in (self.start_spin, self.end_spin, self.cut_last_spin, self.set_start_button, self.set_end_button, self.cut_last_button):
                 widget.setEnabled(False)
-            controls.addWidget(QLabel("Start"))
+            controls.addWidget(QLabel("시작"))
             controls.addWidget(self.start_spin)
             controls.addWidget(self.set_start_button)
-            controls.addWidget(QLabel("End"))
+            controls.addWidget(QLabel("끝"))
             controls.addWidget(self.end_spin)
             controls.addWidget(self.set_end_button)
-            controls.addWidget(QLabel("Last"))
+            controls.addWidget(QLabel("끝부분"))
             controls.addWidget(self.cut_last_spin)
             controls.addWidget(self.cut_last_button)
             controls.addStretch(1)
-            controls.addWidget(QLabel("Split"))
+            controls.addWidget(QLabel("균등 분할"))
             self.split_spin = QSpinBox()
             self.split_spin.setRange(1, 99)
             self.split_spin.setValue(1)
@@ -224,15 +336,7 @@ def run() -> int:
                 button.clicked.connect(lambda _=False, value=int(text): self.split_spin.setValue(value))
                 controls.addWidget(button)
                 setattr(self, f"split_{text}_button", button)
-            layout.addLayout(controls)
-
-            self.engine_table = QTableWidget(len(ENGINE_NAMES), 5)
-            self.engine_table.setAccessibleName("Engine setup table")
-            self.engine_table.setHorizontalHeaderLabels(["Engine", "Status", "Runner", "Model", "Action"])
-            self.engine_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-            self.engine_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-            self.engine_table.horizontalHeader().setStretchLastSection(True)
-            layout.addWidget(self.engine_table)
+            advanced_content_layout.addLayout(controls)
 
             job_row = QHBoxLayout()
             self.chunk_combo = QComboBox()
@@ -240,42 +344,72 @@ def run() -> int:
             for minutes in (3, 5, 10, 15, 20):
                 self.chunk_combo.addItem(f"{minutes} min", minutes * 60)
             self.chunk_combo.setCurrentText("10 min")
-            self.transcribe_button = QPushButton("Transcribe")
-            self.compare_button = QPushButton("Compare Models")
-            self.resume_button = QPushButton("Resume Job")
-            self.stop_job_button = QPushButton("Stop Job")
-            self.transcribe_button.setEnabled(False)
+            self.compare_button = QPushButton("모델 비교")
+            self.resume_button = QPushButton("작업 이어하기")
+            self.stop_job_button = QPushButton("작업 중지")
             self.compare_button.setEnabled(False)
-            self.transcribe_button.setToolTip("Transcribe with the selected ready model.")
-            self.compare_button.setToolTip("Transcribe with every ready model.")
+            self.compare_button.setToolTip("준비된 모든 모델로 같은 음성을 비교합니다.")
             self.stop_job_button.setEnabled(False)
             self.progress = QProgressBar()
             self.progress.setRange(0, 0)
             self.progress.setVisible(False)
-            chunk_label = QLabel("Chunk size")
+            chunk_label = QLabel("Chunk")
             chunk_label.setBuddy(self.chunk_combo)
             job_row.addWidget(chunk_label)
             job_row.addWidget(self.chunk_combo)
             job_row.addStretch(1)
-            job_row.addWidget(self.transcribe_button)
             job_row.addWidget(self.compare_button)
             job_row.addWidget(self.resume_button)
             job_row.addWidget(self.stop_job_button)
-            job_row.addWidget(self.progress)
-            layout.addLayout(job_row)
+            advanced_content_layout.addLayout(job_row)
+            advanced_layout.addWidget(self.advanced_content)
+            self.advanced_content.setVisible(False)
+            layout.addWidget(self.advanced_box)
+
+            primary_row = QHBoxLayout()
+            primary_row.addStretch(1)
+            self.transcribe_button = QPushButton(PRIMARY_ACTION_TEXT)
+            self.transcribe_button.setObjectName("primaryAction")
+            self.transcribe_button.setEnabled(False)
+            self.transcribe_button.setToolTip("선택한 음성 파일에서 스크립트를 추출합니다.")
+            primary_row.addWidget(self.transcribe_button)
+            primary_row.addWidget(self.progress)
+            primary_row.addStretch(1)
+            layout.addLayout(primary_row)
+
+            result_box = QGroupBox("결과")
+            result_layout = QVBoxLayout(result_box)
+            self.result_preview = QPlainTextEdit()
+            self.result_preview.setReadOnly(True)
+            self.result_preview.setPlaceholderText("추출된 스크립트가 여기에 표시됩니다.")
+            self.result_preview.setAccessibleName("Transcript preview")
+            result_layout.addWidget(self.result_preview)
+            result_actions = QHBoxLayout()
+            self.open_txt_button = QPushButton("TXT 열기")
+            self.open_json_button = QPushButton("JSON 열기")
+            self.open_folder_button = QPushButton("결과 폴더 열기")
+            for widget in (self.open_txt_button, self.open_json_button, self.open_folder_button):
+                widget.setEnabled(False)
+                result_actions.addWidget(widget)
+            result_actions.addStretch(1)
+            result_layout.addLayout(result_actions)
+            layout.addWidget(result_box)
 
             self.log = QPlainTextEdit()
             self.log.setReadOnly(True)
-            self.log.setAccessibleName("Job log")
+            self.log.setAccessibleName("Detailed job log")
+            self.log.setMaximumHeight(96)
+            self.log.setPlaceholderText("상세 로그")
             layout.addWidget(self.log)
             self.setCentralWidget(root)
+            self.setAcceptDrops(True)
 
             self.open_button.clicked.connect(self.open_file)
+            self.model_settings_button.clicked.connect(self.show_model_settings)
             self.record_button.clicked.connect(self.start_recording)
             self.stop_record_button.clicked.connect(self.stop_recording)
             self.recorder.recorderStateChanged.connect(self.recording_state_changed)
             self.recorder.errorOccurred.connect(self.recording_error)
-            self.model_combo.currentIndexChanged.connect(lambda _index: self.update_action_state())
             self.play_button.clicked.connect(self.player.play)
             self.stop_button.clicked.connect(self.player.stop)
             self.set_start_button.clicked.connect(self.set_start_from_player)
@@ -286,7 +420,12 @@ def run() -> int:
             self.compare_button.clicked.connect(self.compare_models)
             self.resume_button.clicked.connect(self.resume_job)
             self.stop_job_button.clicked.connect(self.stop_job)
+            self.open_txt_button.clicked.connect(self.open_transcript)
+            self.open_json_button.clicked.connect(self.open_transcript_json)
+            self.open_folder_button.clicked.connect(self.open_result_folder)
+            self.advanced_box.toggled.connect(self.advanced_content.setVisible)
             self.refresh_engines()
+            QTimer.singleShot(0, self.show_model_settings_if_needed)
 
         def time_spin(self) -> QDoubleSpinBox:
             spin = QDoubleSpinBox()
@@ -314,7 +453,7 @@ def run() -> int:
         def open_file(self) -> None:
             path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Open audio",
+                "음성 파일 선택",
                 "",
                 "Audio Files (*.mp3 *.wav *.m4a *.flac *.aac);;All Files (*)",
             )
@@ -324,15 +463,30 @@ def run() -> int:
 
         def load_audio(self, path: Path, auto_transcribe: bool) -> None:
             self.input_path = path
+            self.last_transcript_path = None
             self.player.setSource(QUrl.fromLocalFile(str(self.input_path)))
             self.play_button.setEnabled(True)
             self.stop_button.setEnabled(True)
+            self.file_label.setText(f"선택된 파일: {self.input_path.name}")
+            self.file_label.setToolTip(str(self.input_path))
+            self.result_preview.clear()
+            for widget in (self.open_txt_button, self.open_json_button, self.open_folder_button):
+                widget.setEnabled(False)
             self.log.appendPlainText(f"Opened: {self.input_path}")
             self.probe_duration()
             self.render_waveform_preview()
             self.update_action_state()
             if auto_transcribe:
                 self.transcribe_recording_if_ready()
+
+        def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt override.
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+
+        def dropEvent(self, event) -> None:  # noqa: N802 - Qt override.
+            urls = event.mimeData().urls()
+            if urls:
+                self.load_audio(Path(urls[0].toLocalFile()), auto_transcribe=False)
 
         def start_recording(self) -> None:
             self.player.stop()
@@ -398,10 +552,12 @@ def run() -> int:
                 self.total_duration = parse_duration(result.stdout)
             except ValueError as exc:
                 self.log.appendPlainText(str(exc))
+                self.file_meta_label.setText("길이: 확인 실패")
                 return
             self.start_spin.setValue(0)
             self.end_spin.setValue(self.total_duration)
             self.set_editing_enabled(True)
+            self.file_meta_label.setText(f"길이: {self.total_duration:.1f}초")
             self.log.appendPlainText(f"Duration: {self.total_duration:.1f} sec")
 
         def render_waveform_preview(self) -> None:
@@ -470,31 +626,71 @@ def run() -> int:
             self.log.appendPlainText(f"Exported {len(commands)} segment(s) to {output_dir}")
 
         def refresh_engines(self) -> None:
-            for row, (engine_id, name) in enumerate(ENGINE_NAMES.items()):
-                entry = self.config.setdefault("engines", {}).setdefault(engine_id, {})
-                executable = Path(entry.get("executable", ""))
-                model_path = Path(entry.get("model_path", ""))
-                status = validate_engine(EngineConfig(engine_id, executable, model_path))
-                self.engine_table.setItem(row, 0, self.read_only_item(name))
-                self.engine_table.setItem(row, 1, self.read_only_item(status.message))
-                exe_label, exe_tip = _display_path(executable)
-                model_label, model_tip = _display_path(model_path)
-                self.engine_table.setItem(row, 2, self.read_only_item(exe_label, exe_tip))
-                self.engine_table.setItem(row, 3, self.read_only_item(model_label, model_tip))
-                action = QWidget()
-                buttons = QGridLayout(action)
-                buttons.setContentsMargins(0, 0, 0, 0)
-                exe_button = QPushButton("Choose Runner File")
-                model_button = QPushButton("Choose Model")
-                page_button = QPushButton("Open Page")
-                exe_button.clicked.connect(lambda _=False, key=engine_id: self.choose_executable(key))
-                model_button.clicked.connect(lambda _=False, key=engine_id: self.choose_model(key))
-                page_button.clicked.connect(lambda _=False, key=engine_id: webbrowser.open(ENGINE_HOME_PAGES[key]))
-                buttons.addWidget(exe_button, 0, 0)
-                buttons.addWidget(model_button, 0, 1)
-                buttons.addWidget(page_button, 0, 2)
-                self.engine_table.setCellWidget(row, 4, action)
+            config = self.selected_engine_config()
+            if config is None:
+                self.model_status_label.setText(_model_status_text(ENGINE_NAMES["qwen3"], False))
+            else:
+                self.model_status_label.setText(_model_status_text(ENGINE_NAMES[config.engine_id], True))
             self.update_action_state()
+
+        def show_model_settings_if_needed(self) -> None:
+            if not self.ready_engine_configs():
+                self.show_model_settings()
+
+        def show_model_settings(self) -> None:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("모델 설정")
+            dialog.resize(980, 360)
+            layout = QVBoxLayout(dialog)
+            intro = QLabel("추천 모델을 준비한 뒤 음성 파일에서 스크립트를 추출할 수 있습니다.")
+            layout.addWidget(intro)
+            table = QTableWidget(len(catalog_entries()), 4)
+            table.setHorizontalHeaderLabels(["모델", "상태", "설명", "작업"])
+            table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            table.horizontalHeader().setStretchLastSection(True)
+            layout.addWidget(table)
+
+            def set_selected(engine_id: str) -> None:
+                self.config["selected_engine_id"] = engine_id
+                _save_config(self.config)
+                self.refresh_engines()
+                refresh_table()
+
+            def refresh_table() -> None:
+                selected_config = self.selected_engine_config()
+                selected = selected_config.engine_id if selected_config is not None else self.config.get("selected_engine_id", "qwen3")
+                for row, catalog in enumerate(catalog_entries()):
+                    config = self.engine_config(catalog.engine_id)
+                    status = validate_engine(config)
+                    status_text = "사용 중" if status.ok and selected == catalog.engine_id else status.message
+                    table.setItem(row, 0, self.read_only_item(catalog.name))
+                    table.setItem(row, 1, self.read_only_item(status_text))
+                    table.setItem(row, 2, self.read_only_item(catalog.summary))
+                    action = QWidget()
+                    buttons = QGridLayout(action)
+                    buttons.setContentsMargins(0, 0, 0, 0)
+                    use_button = QPushButton("사용")
+                    download_button = QPushButton("다운로드 페이지")
+                    runner_button = QPushButton(catalog.runner_label)
+                    model_button = QPushButton(catalog.model_label)
+                    use_button.setEnabled(status.ok)
+                    use_button.clicked.connect(lambda _=False, key=catalog.engine_id: set_selected(key))
+                    download_button.clicked.connect(lambda _=False, url=catalog.download_url: webbrowser.open(url))
+                    runner_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_executable(key), refresh_table()))
+                    model_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_model(key), refresh_table()))
+                    buttons.addWidget(use_button, 0, 0)
+                    buttons.addWidget(download_button, 0, 1)
+                    buttons.addWidget(runner_button, 0, 2)
+                    buttons.addWidget(model_button, 0, 3)
+                    table.setCellWidget(row, 3, action)
+
+            refresh_table()
+            close_button = QPushButton("닫기")
+            close_button.clicked.connect(dialog.accept)
+            layout.addWidget(close_button)
+            dialog.exec()
+            self.refresh_engines()
 
         def read_only_item(self, text: str, tooltip: str = "") -> QTableWidgetItem:
             item = QTableWidgetItem(text)
@@ -506,7 +702,7 @@ def run() -> int:
         def choose_executable(self, engine_id: str) -> None:
             path, _ = QFileDialog.getOpenFileName(self, "Choose runner file")
             if path:
-                self.config["engines"][engine_id]["executable"] = path
+                self.config.setdefault("engines", {}).setdefault(engine_id, {})["executable"] = path
                 _save_config(self.config)
                 self.refresh_engines()
 
@@ -516,7 +712,7 @@ def run() -> int:
             else:
                 path = QFileDialog.getExistingDirectory(self, "Choose model folder")
             if path:
-                self.config["engines"][engine_id]["model_path"] = path
+                self.config.setdefault("engines", {}).setdefault(engine_id, {})["model_path"] = path
                 _save_config(self.config)
                 self.refresh_engines()
 
@@ -529,8 +725,12 @@ def run() -> int:
             return [config for config in configs if validate_engine(config).ok]
 
         def selected_engine_config(self) -> EngineConfig | None:
-            config = self.engine_config(self.model_combo.currentData())
-            return config if validate_engine(config).ok else None
+            selected = self.config.get("selected_engine_id", "qwen3")
+            candidates = [self.engine_config(selected), *self.ready_engine_configs()]
+            for config in candidates:
+                if validate_engine(config).ok:
+                    return config
+            return None
 
         def update_action_state(self) -> None:
             has_input = self.input_path is not None and self.total_duration > 0
@@ -541,14 +741,15 @@ def run() -> int:
             self.record_button.setEnabled(idle)
             self.stop_record_button.setEnabled(recording)
             self.export_button.setEnabled(has_input and idle)
-            self.transcribe_button.setEnabled(has_input and self.selected_engine_config() is not None and idle)
+            self.transcribe_button.setEnabled(has_input and idle)
             self.compare_button.setEnabled(has_input and len(ready) >= 2 and idle)
             self.resume_button.setEnabled(idle)
 
         def transcribe_selected(self) -> None:
             config = self.selected_engine_config()
             if config is None:
-                QMessageBox.warning(self, "Engine missing", "Choose runner file and model path first.")
+                QMessageBox.information(self, "모델 설정 필요", "스크립트 추출 전에 사용할 모델을 준비하세요.")
+                self.show_model_settings()
                 return
             self.start_job([config])
 
@@ -619,6 +820,27 @@ def run() -> int:
 
         def job_finished(self, outputs: str) -> None:
             self.log.appendPlainText(f"Transcript written:\n{outputs}")
+            paths = [Path(line.strip()) for line in outputs.splitlines() if line.strip()]
+            if not paths:
+                return
+            self.last_transcript_path = paths[0]
+            if self.last_transcript_path.exists():
+                self.result_preview.setPlainText(self.last_transcript_path.read_text(encoding="utf-8", errors="replace"))
+                self.open_txt_button.setEnabled(True)
+                self.open_json_button.setEnabled(self.last_transcript_path.with_suffix(".json").exists())
+                self.open_folder_button.setEnabled(True)
+
+        def open_transcript(self) -> None:
+            if self.last_transcript_path is not None:
+                _open_path(self.last_transcript_path)
+
+        def open_transcript_json(self) -> None:
+            if self.last_transcript_path is not None:
+                _open_path(self.last_transcript_path.with_suffix(".json"))
+
+        def open_result_folder(self) -> None:
+            if self.last_transcript_path is not None:
+                _open_path(self.last_transcript_path.parent)
 
         def clear_job(self) -> None:
             self.job_worker = None
@@ -628,6 +850,8 @@ def run() -> int:
             self.update_action_state()
 
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    app.setStyleSheet(APP_STYLESHEET)
     window = MainWindow()
     window.show()
     return app.exec()

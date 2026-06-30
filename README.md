@@ -28,19 +28,21 @@ uv run python -m meet_note_gen
   - SenseVoiceSmall INT8 runner/model through sherpa-onnx.
   - Whisper.cpp `whisper-cli.exe` and `large-v3-turbo-q5` model.
 
-Models are not bundled in the app. Use the app's engine table to open the engine page, then choose the runner executable and model path.
+Models are not bundled in the app. Use `모델 설정` to open download pages, then choose the runner executable and model path.
 
 ## Current Features
 
-- Open audio files.
+- Open audio files or drag them into the window.
 - Record from the default microphone, then load and transcribe the recording automatically when the selected engine is ready.
 - Generate an ffmpeg waveform preview.
 - Play and stop audio through Qt Multimedia.
+- Extract a script from the selected audio with one primary button.
+- Preview the transcript and open TXT/JSON/result folder after completion.
 - Set trim start/end from the current playback position or numeric seconds.
 - Cut a duration from the end.
 - Export the selected range as 1 or more WAV segments.
 - Split the selected range into 2, 3, 4, 5, or custom N segments.
-- Transcribe the selected range with a configured engine.
-- Compare every ready engine on the same selected range.
+- Configure/download model links in a separate model settings window.
+- Compare every ready engine from advanced options.
 - Save chunk TXT/JSON plus merged transcript TXT/JSON.
 - Resume an existing job folder and skip completed chunks.

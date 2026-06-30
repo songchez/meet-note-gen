@@ -176,25 +176,23 @@ The app does not need a destructive waveform editor. All edits can be stored as 
 
 ```text
 +--------------------------------------------------------------+
-| [Open] [Record] [Stop Rec] [Play] [Stop] [Export]            |
-| Model: [Qwen3-ASR 0.6B v]                                    |
+| Meet Note Gen                                  [모델 설정]    |
 +--------------------------------------------------------------+
-| 00:00:00                                             03:12:44 |
+| 음성 파일                                                    |
+| [음성 파일 선택] [녹음 시작]                                 |
+| 선택된 파일: meeting.m4a      길이: 03:12:44  모델 준비됨    |
++--------------------------------------------------------------+
 | ~~~~~~~^^^^^^~~~~~~~^^^^~~~~~~^^^^^^~~~~~~~~~~~~~^^^^^^~~~~~~ |
-|        | trim start                         trim end |        |
+| [재생] [정지] [구간 내보내기]                                |
 +--------------------------------------------------------------+
-| Trim: [Set Start] [Set End] [Cut Last: ____ min]              |
-| Split: [2] [3] [4] [5] [N: ___] [Create Segments]             |
+| [고급 옵션]                                                  |
+| [시작 지정] [끝 지정] [끝에서 자르기] [균등 분할]             |
 +--------------------------------------------------------------+
-| Engines                                                      |
-| Qwen3-ASR 0.6B        [Installed/Missing] [Install] [Folder]  |
-| SenseVoiceSmall INT8  [Installed/Missing] [Install] [Folder]  |
-| Whisper Turbo Q5      [Installed/Missing] [Install] [Folder]  |
+|                  [스크립트 추출]                             |
 +--------------------------------------------------------------+
-| Job                                                          |
-| Chunk size: [10 min v]  [Transcribe] [Compare Models] [Stop] |
-| chunk_001 done                                               |
-| chunk_002 running                                            |
+| 결과                                                         |
+| 추출된 스크립트 미리보기                                     |
+| [TXT 열기] [JSON 열기] [결과 폴더 열기]                      |
 +--------------------------------------------------------------+
 ```
 
