@@ -25,6 +25,7 @@ Models are not bundled in the app. Use the app's engine table to open the engine
 ## Current Features
 
 - Open audio files.
+- Record from the default microphone, then load and transcribe the recording automatically when the selected engine is ready.
 - Generate an ffmpeg waveform preview.
 - Play and stop audio through Qt Multimedia.
 - Set trim start/end from the current playback position or numeric seconds.

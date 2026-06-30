@@ -5,6 +5,7 @@
 Build a Windows Python desktop app for long Korean meeting audio:
 
 - Open large audio files, including 500 MB+ and 3 hour+ recordings.
+- Record from the default microphone and transcribe immediately after recording stops.
 - Show waveform, play audio, trim front/back/end ranges, and split evenly.
 - Transcribe with locally installed ASR engines.
 - Let the user install or point to model folders instead of bundling models in the app.
@@ -34,6 +35,7 @@ The app should assume CPU-first execution. GPU/Vulkan/DirectML acceleration is a
 |                                                  |
 |  PySide6 GUI                                     |
 |    - file open                                   |
+|    - recording                                   |
 |    - waveform                                    |
 |    - playback                                    |
 |    - trim/split controls                         |
@@ -76,6 +78,7 @@ The app owns audio preparation, UI, job state, and file output. Each ASR model i
       results\
       state.json
   output\
+  recordings\
 ```
 
 The app installer includes the GUI and Python runtime dependencies only. The model manager can:
@@ -125,7 +128,7 @@ Expected role:
 ## Audio Flow
 
 ```text
-input audio
+input audio or recorded audio
   |
   v
 ffmpeg probe
@@ -156,6 +159,8 @@ Default chunk size is 10 minutes. The app can expose 3, 5, 10, 15, and 20 minute
 MVP editing controls:
 
 - Open audio file.
+- Record from the default microphone.
+- Load a completed recording automatically and start transcription when the selected engine is ready.
 - Display waveform overview.
 - Play, pause, seek.
 - Trim front.
@@ -171,7 +176,8 @@ The app does not need a destructive waveform editor. All edits can be stored as 
 
 ```text
 +--------------------------------------------------------------+
-| [Open] [Play] [Stop] [Export]       Model: [Qwen3-ASR 0.6B v] |
+| [Open] [Record] [Stop Rec] [Play] [Stop] [Export]            |
+| Model: [Qwen3-ASR 0.6B v]                                    |
 +--------------------------------------------------------------+
 | 00:00:00                                             03:12:44 |
 | ~~~~~~~^^^^^^~~~~~~~^^^^~~~~~~^^^^^^~~~~~~~~~~~~~^^^^^^~~~~~~ |
@@ -251,6 +257,7 @@ Manual checks on Windows:
 
 - Install each engine through model manager.
 - Transcribe a 3-5 minute Korean sample with each engine.
+- Record a short microphone sample and verify it auto-starts transcription when a selected engine is ready.
 - Transcribe a long file by chunking and resuming after stopping.
 - Export trimmed and evenly split audio.
 

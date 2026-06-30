@@ -16,6 +16,6 @@ def app_dir() -> Path:
 
 def ensure_app_dirs() -> Path:
     root = app_dir()
-    for name in ("engines", "models", "jobs", "output"):
+    for name in ("engines", "models", "jobs", "output", "recordings"):
         (root / name).mkdir(parents=True, exist_ok=True)
     return root

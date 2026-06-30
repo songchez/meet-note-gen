@@ -16,6 +16,7 @@ from .audio import (
 from .engines import ENGINE_HOME_PAGES, ENGINE_NAMES, EngineConfig, validate_engine
 from .jobs import Job, create_job
 from .paths import ensure_app_dirs
+from .recording import next_recording_path
 from .transcription import transcribe_job
 
 
@@ -46,11 +47,25 @@ def _display_path(value: str | Path) -> tuple[str, str]:
     return label, text
 
 
+def _qt_import_error_message(exc: BaseException) -> str:
+    return (
+        f"PySide6/Qt runtime is not available: {exc}\n"
+        "Run: pip install -e . and make sure Qt runtime libraries are installed."
+    )
+
+
 def run() -> int:
     try:
         from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal
         from PySide6.QtGui import QPixmap
-        from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+        from PySide6.QtMultimedia import (
+            QAudioInput,
+            QAudioOutput,
+            QMediaCaptureSession,
+            QMediaFormat,
+            QMediaPlayer,
+            QMediaRecorder,
+        )
         from PySide6.QtWidgets import (
             QAbstractItemView,
             QApplication,
@@ -71,8 +86,8 @@ def run() -> int:
             QVBoxLayout,
             QWidget,
         )
-    except ImportError:
-        print("PySide6 is not installed. Run: pip install -e .", file=sys.stderr)
+    except ImportError as exc:
+        print(_qt_import_error_message(exc), file=sys.stderr)
         return 1
 
     class JobWorker(QObject):
@@ -115,24 +130,40 @@ def run() -> int:
             self.total_duration = 0.0
             self.job_thread: QThread | None = None
             self.job_worker: JobWorker | None = None
+            self.recording_path: Path | None = None
+            self.recording_finishing = False
             self.setWindowTitle("Meet Note Gen")
             self.resize(960, 620)
 
             self.audio_output = QAudioOutput()
             self.player = QMediaPlayer()
             self.player.setAudioOutput(self.audio_output)
+            self.capture_session = QMediaCaptureSession()
+            self.audio_input = QAudioInput()
+            self.recorder = QMediaRecorder()
+            media_format = QMediaFormat(QMediaFormat.FileFormat.Mpeg4Audio)
+            media_format.setAudioCodec(QMediaFormat.AudioCodec.AAC)
+            self.recorder.setMediaFormat(media_format)
+            self.recorder.setQuality(QMediaRecorder.Quality.HighQuality)
+            self.capture_session.setAudioInput(self.audio_input)
+            self.capture_session.setRecorder(self.recorder)
 
             root = QWidget()
             layout = QVBoxLayout(root)
 
             toolbar = QHBoxLayout()
             self.open_button = QPushButton("Open Audio")
+            self.record_button = QPushButton("Record")
+            self.stop_record_button = QPushButton("Stop Recording")
             self.play_button = QPushButton("Play")
             self.stop_button = QPushButton("Stop Playback")
             self.export_button = QPushButton("Export Segments")
+            self.stop_record_button.setEnabled(False)
             self.play_button.setEnabled(False)
             self.stop_button.setEnabled(False)
             self.export_button.setEnabled(False)
+            self.record_button.setToolTip("Record from the default microphone.")
+            self.stop_record_button.setToolTip("Stop recording, load it, and transcribe if the selected model is ready.")
             self.play_button.setToolTip("Play the opened audio.")
             self.stop_button.setToolTip("Stop playback.")
             self.export_button.setToolTip("Export the selected range as split WAV segments.")
@@ -141,6 +172,8 @@ def run() -> int:
             for engine_id, name in ENGINE_NAMES.items():
                 self.model_combo.addItem(name, engine_id)
             toolbar.addWidget(self.open_button)
+            toolbar.addWidget(self.record_button)
+            toolbar.addWidget(self.stop_record_button)
             toolbar.addWidget(self.play_button)
             toolbar.addWidget(self.stop_button)
             toolbar.addWidget(self.export_button)
@@ -238,6 +271,10 @@ def run() -> int:
             self.setCentralWidget(root)
 
             self.open_button.clicked.connect(self.open_file)
+            self.record_button.clicked.connect(self.start_recording)
+            self.stop_record_button.clicked.connect(self.stop_recording)
+            self.recorder.recorderStateChanged.connect(self.recording_state_changed)
+            self.recorder.errorOccurred.connect(self.recording_error)
             self.model_combo.currentIndexChanged.connect(lambda _index: self.update_action_state())
             self.play_button.clicked.connect(self.player.play)
             self.stop_button.clicked.connect(self.player.stop)
@@ -283,7 +320,10 @@ def run() -> int:
             )
             if not path:
                 return
-            self.input_path = Path(path)
+            self.load_audio(Path(path), auto_transcribe=False)
+
+        def load_audio(self, path: Path, auto_transcribe: bool) -> None:
+            self.input_path = path
             self.player.setSource(QUrl.fromLocalFile(str(self.input_path)))
             self.play_button.setEnabled(True)
             self.stop_button.setEnabled(True)
@@ -291,6 +331,54 @@ def run() -> int:
             self.probe_duration()
             self.render_waveform_preview()
             self.update_action_state()
+            if auto_transcribe:
+                self.transcribe_recording_if_ready()
+
+        def start_recording(self) -> None:
+            self.player.stop()
+            self.recording_path = next_recording_path(ensure_app_dirs())
+            self.recording_path.parent.mkdir(parents=True, exist_ok=True)
+            self.recording_finishing = False
+            self.recorder.setOutputLocation(QUrl.fromLocalFile(str(self.recording_path)))
+            self.recorder.record()
+            self.update_action_state()
+            self.log.appendPlainText(f"Recording: {self.recording_path}")
+
+        def stop_recording(self) -> None:
+            self.recording_finishing = True
+            self.stop_record_button.setEnabled(False)
+            self.recorder.stop()
+
+        def recording_state_changed(self, state) -> None:
+            if state != QMediaRecorder.RecorderState.StoppedState:
+                self.update_action_state()
+                return
+            self.update_action_state()
+            if not self.recording_finishing or self.recording_path is None:
+                return
+            path = self.recording_path
+            self.recording_path = None
+            self.recording_finishing = False
+            if not path.exists():
+                self.log.appendPlainText("Recording stopped, but no output file was written.")
+                return
+            self.log.appendPlainText(f"Recording saved: {path}")
+            self.load_audio(path, auto_transcribe=True)
+
+        def recording_error(self, _error, message: str) -> None:
+            if message:
+                self.log.appendPlainText(f"Recording failed: {message}")
+            self.recording_path = None
+            self.recording_finishing = False
+            self.update_action_state()
+
+        def transcribe_recording_if_ready(self) -> None:
+            config = self.selected_engine_config()
+            if config is None:
+                self.log.appendPlainText("Recording loaded. Choose a ready model to transcribe.")
+                return
+            self.log.appendPlainText(f"Auto transcribing recording with {ENGINE_NAMES[config.engine_id]}.")
+            self.start_job([config])
 
         def probe_duration(self) -> None:
             if self.input_path is None:
@@ -447,10 +535,15 @@ def run() -> int:
         def update_action_state(self) -> None:
             has_input = self.input_path is not None and self.total_duration > 0
             ready = self.ready_engine_configs()
-            self.export_button.setEnabled(has_input)
-            self.transcribe_button.setEnabled(has_input and self.selected_engine_config() is not None and self.job_thread is None)
-            self.compare_button.setEnabled(has_input and len(ready) >= 2 and self.job_thread is None)
-            self.resume_button.setEnabled(self.job_thread is None)
+            recording = self.recorder.recorderState() == QMediaRecorder.RecorderState.RecordingState
+            idle = not recording and self.job_thread is None
+            self.open_button.setEnabled(idle)
+            self.record_button.setEnabled(idle)
+            self.stop_record_button.setEnabled(recording)
+            self.export_button.setEnabled(has_input and idle)
+            self.transcribe_button.setEnabled(has_input and self.selected_engine_config() is not None and idle)
+            self.compare_button.setEnabled(has_input and len(ready) >= 2 and idle)
+            self.resume_button.setEnabled(idle)
 
         def transcribe_selected(self) -> None:
             config = self.selected_engine_config()
@@ -513,9 +606,7 @@ def run() -> int:
             self.job_thread.finished.connect(self.clear_job)
             self.progress.setVisible(True)
             self.stop_job_button.setEnabled(True)
-            self.resume_button.setEnabled(False)
-            self.transcribe_button.setEnabled(False)
-            self.compare_button.setEnabled(False)
+            self.update_action_state()
             self.job_thread.start()
 
         def stop_job(self) -> None:

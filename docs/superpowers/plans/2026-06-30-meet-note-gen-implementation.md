@@ -4,6 +4,8 @@
 
 **Goal:** Build a runnable Windows Python desktop MVP for long-audio trimming, chunking, model-path management, and external ASR engine execution.
 
+**Added requirement:** The app also records from the default microphone. When recording stops, the saved audio is loaded as the current input and transcription starts automatically if the selected engine is ready.
+
 **Architecture:** Keep the desktop GUI thin and put all durable behavior in small stdlib-friendly core modules. Audio preparation is ffmpeg command generation plus subprocess execution. ASR engines are external CLI adapters for Qwen3-ASR, SenseVoice/sherpa-onnx, and Whisper.cpp.
 
 **Tech Stack:** Python 3.10+, PySide6, pyqtgraph, stdlib unittest, ffmpeg, external ASR executables.
@@ -21,9 +23,12 @@
 - Create: `src/meet_note_gen/engines.py` - engine config, validation, and CLI command builders.
 - Create: `src/meet_note_gen/jobs.py` - job folders, chunk state, result paths, resume helpers.
 - Create: `src/meet_note_gen/gui.py` - PySide6 desktop shell, model manager table, basic controls.
+- Create: `src/meet_note_gen/recording.py` - timestamped recording output path helper.
 - Create: `tests/test_audio.py` - split/trim/ffmpeg command checks.
 - Create: `tests/test_engines.py` - engine validation and command builder checks.
 - Create: `tests/test_jobs.py` - job state and resume checks.
+- Create: `tests/test_recording.py` - recording file naming checks.
+- Create: `tests/test_smoke_pipeline.py` - ffmpeg chunking plus fake-ASR smoke test.
 
 ## Task 1: Project Scaffold
 
