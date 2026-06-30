@@ -14,7 +14,7 @@ from .audio import (
 )
 from .engines import ENGINE_NAMES, EngineConfig, EngineStatus, validate_engine
 from .jobs import Job, create_job
-from .model_catalog import catalog_entries
+from .model_catalog import catalog_entries, default_engine_id
 from .model_downloader import download_model
 from .paths import ensure_app_dirs
 from .recording import next_recording_path
@@ -296,7 +296,7 @@ def run() -> int:
             self.file_label = QLabel("파일을 선택하거나 창에 끌어다 놓으세요.")
             self.file_label.setAccessibleName("Selected audio file")
             self.file_meta_label = QLabel("길이: -")
-            self.model_status_label = QLabel(_model_status_text(ENGINE_NAMES["qwen3"], False))
+            self.model_status_label = QLabel(_model_status_text(ENGINE_NAMES[default_engine_id()], False))
             status_row = QHBoxLayout()
             status_row.addWidget(self.file_label)
             status_row.addStretch(1)
@@ -659,7 +659,7 @@ def run() -> int:
         def refresh_engines(self) -> None:
             config = self.selected_engine_config()
             if config is None:
-                self.model_status_label.setText(_model_status_text(ENGINE_NAMES["qwen3"], False))
+                self.model_status_label.setText(_model_status_text(ENGINE_NAMES[default_engine_id()], False))
             else:
                 self.model_status_label.setText(_model_status_text(ENGINE_NAMES[config.engine_id], True))
             self.update_action_state()
@@ -690,7 +690,7 @@ def run() -> int:
 
             def refresh_table() -> None:
                 selected_config = self.selected_engine_config()
-                selected = selected_config.engine_id if selected_config is not None else self.config.get("selected_engine_id", "qwen3")
+                selected = selected_config.engine_id if selected_config is not None else self.config.get("selected_engine_id", default_engine_id())
                 for row, catalog in enumerate(catalog_entries()):
                     config = self.engine_config(catalog.engine_id)
                     status = validate_engine(config)
@@ -795,7 +795,7 @@ def run() -> int:
             return [config for config in configs if validate_engine(config).ok]
 
         def selected_engine_config(self) -> EngineConfig | None:
-            selected = self.config.get("selected_engine_id", "qwen3")
+            selected = self.config.get("selected_engine_id", default_engine_id())
             candidates = [self.engine_config(selected), *self.ready_engine_configs()]
             for config in candidates:
                 if validate_engine(config).ok:

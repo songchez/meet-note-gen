@@ -19,23 +19,23 @@ class ModelCatalogEntry:
 
 MODEL_CATALOG = (
     ModelCatalogEntry(
-        "qwen3",
-        "Qwen3-ASR 0.6B",
-        "한국어 회의 추천",
-        "https://huggingface.co/Qwen/Qwen3-ASR-0.6B",
-        "Qwen/Qwen3-ASR-0.6B",
-        "qwen3-asr-0.6b",
+        "sensevoice",
+        "SenseVoiceSmall INT8",
+        "가벼운 빠른 변환 / 자동 설치 우선",
+        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17",
+        "csukuangfj/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17",
+        "sensevoice-small-int8",
         "Runner 파일",
         "모델 폴더",
         recommended=True,
     ),
     ModelCatalogEntry(
-        "sensevoice",
-        "SenseVoiceSmall INT8",
-        "가벼운 빠른 변환",
-        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17",
-        "csukuangfj/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17",
-        "sensevoice-small-int8",
+        "qwen3",
+        "Qwen3-ASR 0.6B",
+        "한국어 회의 고급 설정",
+        "https://huggingface.co/Qwen/Qwen3-ASR-0.6B",
+        "Qwen/Qwen3-ASR-0.6B",
+        "qwen3-asr-0.6b",
         "Runner 파일",
         "모델 폴더",
     ),
@@ -59,3 +59,7 @@ def catalog_entries() -> tuple[ModelCatalogEntry, ...]:
 
 def catalog_by_engine() -> dict[str, ModelCatalogEntry]:
     return {entry.engine_id: entry for entry in MODEL_CATALOG}
+
+
+def default_engine_id() -> str:
+    return MODEL_CATALOG[0].engine_id
