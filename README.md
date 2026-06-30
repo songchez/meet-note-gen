@@ -4,11 +4,19 @@ Windows Python desktop app for long Korean meeting audio.
 
 ## Run
 
-```bat
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-python -m meet_note_gen
+Install `uv` and `ffmpeg` first:
+
+```powershell
+winget install -e --id astral-sh.uv
+winget install -e --id Gyan.FFmpeg
+```
+
+Then run from the project folder:
+
+```powershell
+uv venv --python 3.12
+uv pip install -e .
+uv run python -m meet_note_gen
 ```
 
 ## External Tools

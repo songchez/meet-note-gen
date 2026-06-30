@@ -399,11 +399,10 @@ Expected: 1 passed.
 
 Include:
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .[dev]
-python -m meet_note_gen
+```powershell
+uv venv --python 3.12
+uv pip install -e .
+uv run python -m meet_note_gen
 ```
 
 - [ ] **Step 2: Document external requirements**
