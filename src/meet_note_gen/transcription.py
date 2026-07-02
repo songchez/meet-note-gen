@@ -43,7 +43,7 @@ def transcribe_job(
             raise
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or f"{engine_id} failed on {chunk['name']}")
-        job.mark_done(engine_id, chunk["name"], _read_engine_text(output_stem, result))
+        job.mark_done(engine_id, chunk["name"], _read_engine_text(output_stem, result, engine_id))
     output = merge_transcript(job, engine_id)
     on_log(f"{engine_id}: wrote {output}")
     return output
@@ -91,8 +91,28 @@ def _prepare_chunks(job: Job, run: RunCommand, should_stop: ShouldStop, on_log: 
             raise RuntimeError(result.stderr.strip() or f"ffmpeg failed on {output.name}")
 
 
-def _read_engine_text(output_stem: Path, result: CommandResult) -> str:
+def _read_engine_text(output_stem: Path, result: CommandResult, engine_id: str) -> str:
     txt = output_stem.with_suffix(".txt")
     if txt.exists():
         return txt.read_text(encoding="utf-8")
+    if engine_id == "sensevoice":
+        text = _extract_json_text(result.stdout)
+        if text:
+            return text
     return result.stdout
+
+
+def _extract_json_text(stdout: str) -> str:
+    chunks = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        text = payload.get("text")
+        if isinstance(text, str) and text.strip():
+            chunks.append(text.strip())
+    return "\n".join(chunks)

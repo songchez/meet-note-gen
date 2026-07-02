@@ -47,6 +47,29 @@ class TranscriptionTests(unittest.TestCase):
             transcribe_job(job, config, run=run, prepare_chunks=False)
             self.assertEqual((job.root / "results" / "whisper" / "chunk_001.txt").read_text(), "from file")
 
+    def test_transcribe_job_extracts_sensevoice_json_text_from_stdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            job = create_job(root, "meeting.mp3", TimeRange(0, 600), 600, ["sensevoice"])
+            config = EngineConfig("sensevoice", root / "sherpa.exe", root / "model")
+            config.executable.write_text("", encoding="utf-8")
+            config.model_path.mkdir()
+
+            def run(command, cwd):
+                stdout = '\n'.join(
+                    [
+                        "Creating recognizer ...",
+                        str(command[-1]),
+                        '{"lang":"<|ko|>","text":"회의를 시작하겠습니다.","timestamps":[]}',
+                        "----",
+                    ]
+                )
+                return CommandResult(command, 0, stdout, "")
+
+            transcribe_job(job, config, run=run, prepare_chunks=False)
+
+            self.assertEqual((job.root / "results" / "sensevoice" / "chunk_001.txt").read_text(), "회의를 시작하겠습니다.")
+
     def test_merge_transcript_writes_ordered_text(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

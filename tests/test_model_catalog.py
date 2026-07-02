@@ -26,6 +26,11 @@ class ModelCatalogTests(unittest.TestCase):
     def test_default_engine_is_first_recommended_auto_install_choice(self):
         self.assertEqual(default_engine_id(), "sensevoice")
 
+    def test_default_engine_can_auto_install_windows_runner(self):
+        entry = catalog_by_engine()[default_engine_id()]
+        self.assertEqual(entry.runner_repo, "k2-fsa/sherpa-onnx")
+        self.assertEqual(entry.runner_asset_pattern, "sherpa-onnx-non-streaming-asr-x64-*.exe")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,7 +15,7 @@ from .audio import (
 from .engines import ENGINE_NAMES, EngineConfig, EngineStatus, validate_engine
 from .jobs import Job, create_job
 from .model_catalog import catalog_entries, default_engine_id
-from .model_downloader import download_model
+from .model_downloader import install_engine_assets
 from .paths import ensure_app_dirs
 from .recording import next_recording_path
 from .runner import run_command
@@ -225,7 +225,7 @@ def run() -> int:
     class ModelDownloadWorker(QObject):
         log = Signal(str)
         failed = Signal(str)
-        finished = Signal(str, str)
+        finished = Signal(str, str, str)
 
         def __init__(self, engine_id: str) -> None:
             super().__init__()
@@ -234,9 +234,11 @@ def run() -> int:
         def run(self) -> None:
             try:
                 entry = next(item for item in catalog_entries() if item.engine_id == self.engine_id)
-                self.log.emit(f"{entry.name}: 모델 다운로드 시작")
-                path = download_model(ensure_app_dirs(), entry)
-                self.finished.emit(self.engine_id, str(path))
+                task = "모델/Runner 자동 설치" if entry.runner_repo else "모델 다운로드"
+                self.log.emit(f"{entry.name}: {task} 시작")
+                assets = install_engine_assets(ensure_app_dirs(), entry)
+                runner_path = str(assets.runner_path) if assets.runner_path is not None else ""
+                self.finished.emit(self.engine_id, str(assets.model_path), runner_path)
             except Exception as exc:  # noqa: BLE001 - show download errors in the UI.
                 self.failed.emit(str(exc))
 
@@ -702,7 +704,7 @@ def run() -> int:
                     buttons = QGridLayout(action)
                     buttons.setContentsMargins(0, 0, 0, 0)
                     use_button = QPushButton("사용")
-                    download_button = QPushButton("모델 다운로드")
+                    download_button = QPushButton("자동 설치" if catalog.runner_repo else "모델 다운로드")
                     runner_button = QPushButton(catalog.runner_label)
                     model_button = QPushButton(catalog.model_label)
                     use_button.setEnabled(status.ok)
@@ -746,11 +748,16 @@ def run() -> int:
             self.log.appendPlainText(f"모델 다운로드 실패: {message}")
             QMessageBox.warning(self, "모델 다운로드 실패", message)
 
-        def model_download_finished(self, engine_id: str, path: str) -> None:
-            self.config.setdefault("engines", {}).setdefault(engine_id, {})["model_path"] = path
+        def model_download_finished(self, engine_id: str, path: str, runner_path: str) -> None:
+            engine_config = self.config.setdefault("engines", {}).setdefault(engine_id, {})
+            engine_config["model_path"] = path
+            if runner_path:
+                engine_config["executable"] = runner_path
             self.config["selected_engine_id"] = engine_id
             _save_config(self.config)
             self.log.appendPlainText(f"모델 다운로드 완료: {path}")
+            if runner_path:
+                self.log.appendPlainText(f"Runner 설치 완료: {runner_path}")
             self.refresh_engines()
             status = validate_engine(self.engine_config(engine_id))
             if status.ok:

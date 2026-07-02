@@ -53,6 +53,25 @@ class EngineTests(unittest.TestCase):
             self.assertIn("-l", command)
             self.assertIn("ko", command)
 
+    def test_sensevoice_command_uses_sherpa_offline_args(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe = root / "sherpa-onnx-non-streaming-asr-x64.exe"
+            model = root / "sensevoice"
+            audio = root / "chunk_001.wav"
+            out = root / "chunk_001"
+            model.mkdir()
+            for path in (exe, model / "model.int8.onnx", model / "tokens.txt", audio):
+                path.write_text("", encoding="utf-8")
+
+            command = build_command(EngineConfig("sensevoice", exe, model), audio, out)
+
+            self.assertEqual(command[0], str(exe))
+            self.assertIn(f"--tokens={model / 'tokens.txt'}", command)
+            self.assertIn(f"--sense-voice-model={model / 'model.int8.onnx'}", command)
+            self.assertIn("--sense-voice-language=ko", command)
+            self.assertEqual(command[-1], str(audio))
+
     def test_every_engine_has_install_page(self):
         self.assertEqual(set(ENGINE_HOME_PAGES), set(ENGINE_NAMES))
 

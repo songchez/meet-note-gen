@@ -69,13 +69,25 @@ def build_command(config: EngineConfig, audio_path: str | Path, output_stem: str
             str(output_stem.with_suffix(".txt")),
         ]
     if config.engine_id == "sensevoice":
+        model_file = _sensevoice_model_file(config.model_path)
         return [
             str(config.executable),
-            "--model",
-            str(config.model_path),
-            "--tokens",
-            str(config.model_path / "tokens.txt"),
+            f"--tokens={config.model_path / 'tokens.txt'}",
+            f"--sense-voice-model={model_file}",
+            "--num-threads=2",
+            "--sense-voice-language=ko",
+            "--sense-voice-use-itn=1",
+            "--debug=0",
             str(audio_path),
-            str(output_stem.with_suffix(".txt")),
         ]
     raise ValueError(f"unknown engine: {config.engine_id}")
+
+
+def _sensevoice_model_file(model_path: Path) -> Path:
+    int8_model = model_path / "model.int8.onnx"
+    if int8_model.exists():
+        return int8_model
+    fp32_model = model_path / "model.onnx"
+    if fp32_model.exists():
+        return fp32_model
+    return int8_model

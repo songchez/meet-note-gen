@@ -14,6 +14,8 @@ class ModelCatalogEntry:
     runner_label: str
     model_label: str
     hf_filename: str = ""
+    runner_repo: str = ""
+    runner_asset_pattern: str = ""
     recommended: bool = False
 
 
@@ -27,6 +29,8 @@ MODEL_CATALOG = (
         "sensevoice-small-int8",
         "Runner 파일",
         "모델 폴더",
+        runner_repo="k2-fsa/sherpa-onnx",
+        runner_asset_pattern="sherpa-onnx-non-streaming-asr-x64-*.exe",
         recommended=True,
     ),
     ModelCatalogEntry(
