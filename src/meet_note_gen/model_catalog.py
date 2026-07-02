@@ -16,6 +16,7 @@ class ModelCatalogEntry:
     hf_filename: str = ""
     runner_repo: str = ""
     runner_asset_pattern: str = ""
+    runner_executable: str = ""
     recommended: bool = False
 
 
@@ -30,7 +31,8 @@ MODEL_CATALOG = (
         "Runner 파일",
         "모델 폴더",
         runner_repo="k2-fsa/sherpa-onnx",
-        runner_asset_pattern="sherpa-onnx-non-streaming-asr-x64-*.exe",
+        runner_asset_pattern="sherpa-onnx-v*-win-x64-shared-MD-Release-no-tts.tar.bz2",
+        runner_executable="bin/sherpa-onnx-offline.exe",
         recommended=True,
     ),
     ModelCatalogEntry(

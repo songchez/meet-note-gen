@@ -51,7 +51,7 @@ class TranscriptionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             job = create_job(root, "meeting.mp3", TimeRange(0, 600), 600, ["sensevoice"])
-            config = EngineConfig("sensevoice", root / "sherpa.exe", root / "model")
+            config = EngineConfig("sensevoice", root / "sherpa-onnx-offline.exe", root / "model")
             config.executable.write_text("", encoding="utf-8")
             config.model_path.mkdir()
 

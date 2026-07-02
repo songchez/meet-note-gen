@@ -3,11 +3,12 @@ from __future__ import annotations
 import fnmatch
 import json
 import shutil
+import tarfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.request import Request, urlopen
 from typing import Any
+from urllib.request import Request, urlopen
 
 from .model_catalog import ModelCatalogEntry
 
@@ -61,11 +62,20 @@ def download_runner(
         return None
     release = (release_fetcher or _github_latest_release)(entry.runner_repo)
     asset = select_runner_asset(release, entry.runner_asset_pattern)
-    target = Path(app_root) / "engines" / entry.engine_id / asset["name"]
-    if target.exists() and target.stat().st_size > 0:
-        return target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    (file_downloader or _download_file)(asset["browser_download_url"], target)
+    target_dir = Path(app_root) / "engines" / entry.engine_id
+    runner = _find_runner(target_dir, entry.runner_executable)
+    if runner is not None:
+        return runner
+    target = target_dir / asset["name"]
+    target_dir.mkdir(parents=True, exist_ok=True)
+    if not target.exists() or target.stat().st_size == 0:
+        (file_downloader or _download_file)(asset["browser_download_url"], target)
+    if entry.runner_executable:
+        _extract_tar_bz2(target, target_dir)
+        runner = _find_runner(target_dir, entry.runner_executable)
+        if runner is None:
+            raise RuntimeError(f"Runner executable not found after extraction: {entry.runner_executable}")
+        return runner
     return target
 
 
@@ -105,3 +115,26 @@ def _download_file(url: str, target: Path) -> None:
     with urlopen(request) as response, temp.open("wb") as file:  # noqa: S310 - URL comes from GitHub release API.
         shutil.copyfileobj(response, file)
     temp.replace(target)
+
+
+def _extract_tar_bz2(archive: Path, target_dir: Path) -> None:
+    root = target_dir.resolve()
+    with tarfile.open(archive, "r:bz2") as tar:
+        for member in tar.getmembers():
+            destination = (target_dir / member.name).resolve()
+            if root != destination and root not in destination.parents:
+                raise RuntimeError(f"Unsafe archive path: {member.name}")
+        tar.extractall(target_dir)
+
+
+def _find_runner(target_dir: Path, executable: str) -> Path | None:
+    if not executable:
+        return None
+    direct = target_dir / executable
+    if direct.is_file():
+        return direct
+    suffix = executable.replace("\\", "/")
+    for path in target_dir.rglob(Path(executable).name):
+        if path.is_file() and path.as_posix().endswith(suffix):
+            return path
+    return None

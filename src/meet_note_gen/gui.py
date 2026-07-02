@@ -70,6 +70,8 @@ def _engine_status_text(status: EngineStatus) -> str:
         return "Runner 파일 선택 필요"
     if status.message == "Choose Windows runner (.exe)":
         return "Windows 실행파일(.exe) 선택 필요"
+    if status.message == "Choose sherpa offline runner":
+        return "파일 변환용 Runner 재설치 필요"
     if status.message == "Choose model path":
         return "모델 선택 필요"
     return status.message

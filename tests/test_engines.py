@@ -39,6 +39,19 @@ class EngineTests(unittest.TestCase):
             self.assertFalse(status.ok)
             self.assertEqual(status.message, "Choose Windows runner (.exe)")
 
+    def test_sensevoice_rejects_microphone_demo_runner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = root / "sherpa-onnx-non-streaming-asr-x64-v1.13.3.exe"
+            runner.write_text("", encoding="utf-8")
+            model = root / "model"
+            model.mkdir()
+
+            status = validate_engine(EngineConfig("sensevoice", runner, model))
+
+            self.assertFalse(status.ok)
+            self.assertEqual(status.message, "Choose sherpa offline runner")
+
     def test_whisper_command_contains_model_and_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -56,7 +69,7 @@ class EngineTests(unittest.TestCase):
     def test_sensevoice_command_uses_sherpa_offline_args(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            exe = root / "sherpa-onnx-non-streaming-asr-x64.exe"
+            exe = root / "sherpa-onnx-offline.exe"
             model = root / "sensevoice"
             audio = root / "chunk_001.wav"
             out = root / "chunk_001"

@@ -42,6 +42,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(_engine_status_text(EngineStatus(True, "Ready")), "준비됨")
         self.assertEqual(_engine_status_text(EngineStatus(False, "Choose runner file")), "Runner 파일 선택 필요")
         self.assertEqual(_engine_status_text(EngineStatus(False, "Choose Windows runner (.exe)")), "Windows 실행파일(.exe) 선택 필요")
+        self.assertEqual(_engine_status_text(EngineStatus(False, "Choose sherpa offline runner")), "파일 변환용 Runner 재설치 필요")
         self.assertEqual(_engine_status_text(EngineStatus(False, "Choose model path")), "모델 선택 필요")
 
     def test_open_path_command_uses_platform_file_manager(self):

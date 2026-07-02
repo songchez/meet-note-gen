@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from meet_note_gen.runner import run_command
+from meet_note_gen.runner import _creationflags_for_platform, run_command
 
 
 class RunnerTests(unittest.TestCase):
@@ -26,6 +26,10 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(output.returncode, 0)
             self.assertTrue(output.stdout)
             self.assertTrue(output.stderr)
+
+    def test_windows_commands_hide_console_window(self):
+        self.assertEqual(_creationflags_for_platform("linux"), 0)
+        self.assertNotEqual(_creationflags_for_platform("win32"), None)
 
 
 if __name__ == "__main__":
