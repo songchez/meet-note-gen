@@ -84,6 +84,11 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(selected_range(600, 60, 0, 120), TimeRange(60, 480))
         self.assertEqual(selected_range(600, 60, 300, 0), TimeRange(60, 300))
 
+    def test_selected_range_clamps_small_ui_rounding_past_duration(self):
+        self.assertEqual(selected_range(123.456, 0, 123.5, 0), TimeRange(0, 123.456))
+        with self.assertRaisesRegex(ValueError, "end must be within audio duration"):
+            selected_range(123.456, 0, 130, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

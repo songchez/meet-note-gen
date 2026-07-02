@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+UI_ROUNDING_TOLERANCE_SECONDS = 0.1
+
+
 @dataclass(frozen=True)
 class TimeRange:
     start: float
@@ -147,6 +150,8 @@ def selected_range(
     end = end_seconds if end_seconds > 0 else total_duration
     if cut_last_seconds > 0:
         end = min(end, total_duration - cut_last_seconds)
+    if total_duration < end <= total_duration + UI_ROUNDING_TOLERANCE_SECONDS:
+        end = total_duration
     return TimeRange(round(start_seconds, 3), round(end, 3)).validate(total_duration)
 
 
