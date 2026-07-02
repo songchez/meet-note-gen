@@ -32,7 +32,7 @@ class GuiTests(unittest.TestCase):
         self.assertIn("libEGL.so.1 missing", message)
 
     def test_primary_action_text_is_user_facing(self):
-        self.assertEqual(PRIMARY_ACTION_TEXT, "스크립트 추출")
+        self.assertEqual(PRIMARY_ACTION_TEXT, "20분 ZIP 만들기")
 
     def test_model_status_text_guides_missing_setup(self):
         self.assertEqual(_model_status_text("Qwen3-ASR 0.6B", True), "모델: Qwen3-ASR 0.6B 준비됨")

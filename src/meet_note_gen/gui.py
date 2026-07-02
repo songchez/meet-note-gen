@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .audio import (
+    TimeRange,
     build_export_segment_commands,
     build_ffprobe_duration_command,
     build_waveform_image_command,
@@ -20,9 +21,10 @@ from .paths import ensure_app_dirs
 from .recording import next_recording_path
 from .runner import run_command
 from .transcription import transcribe_job
+from .zip_export import build_split_zip_plan, create_zip_archive
 
 
-PRIMARY_ACTION_TEXT = "스크립트 추출"
+PRIMARY_ACTION_TEXT = "20분 ZIP 만들기"
 
 
 def _config_path() -> Path:
@@ -174,7 +176,7 @@ QLabel#waveform {
 
 def run() -> int:
     try:
-        from PySide6.QtCore import QObject, QThread, QTimer, Qt, QUrl, Signal
+        from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal
         from PySide6.QtGui import QPixmap
         from PySide6.QtMultimedia import (
             QAudioInput,
@@ -262,6 +264,39 @@ def run() -> int:
             except Exception as exc:  # noqa: BLE001 - show download errors in the UI.
                 self.failed.emit(str(exc))
 
+    class SplitZipWorker(QObject):
+        log = Signal(str)
+        failed = Signal(str)
+        finished = Signal(str)
+
+        def __init__(self, input_path: Path, total_duration: float) -> None:
+            super().__init__()
+            self.input_path = input_path
+            self.total_duration = total_duration
+            self.stop_requested = False
+
+        def stop(self) -> None:
+            self.stop_requested = True
+
+        def run(self) -> None:
+            try:
+                app_root = ensure_app_dirs()
+                plan = build_split_zip_plan(self.input_path, app_root / "output", TimeRange(0, self.total_duration))
+                plan.chunks_dir.mkdir(parents=True, exist_ok=True)
+                for command in plan.commands:
+                    if self.stop_requested:
+                        raise RuntimeError("Job stopped")
+                    output = Path(command[-1])
+                    self.log.emit(f"ffmpeg: creating {output.name}")
+                    result = run_command(command, app_root)
+                    if result.returncode != 0:
+                        raise RuntimeError(result.stderr.strip() or f"ffmpeg failed on {output.name}")
+                self.log.emit(f"zip: creating {plan.zip_path.name}")
+                create_zip_archive(plan.zip_path, plan.chunk_paths)
+                self.finished.emit(str(plan.zip_path))
+            except Exception as exc:  # noqa: BLE001 - surface ffmpeg/zip errors to UI.
+                self.failed.emit(str(exc))
+
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
@@ -270,6 +305,7 @@ def run() -> int:
             self.total_duration = 0.0
             self.job_thread: QThread | None = None
             self.job_worker: JobWorker | None = None
+            self.zip_worker: SplitZipWorker | None = None
             self.download_thread: QThread | None = None
             self.download_worker: ModelDownloadWorker | None = None
             self.refresh_model_settings_table = None
@@ -319,7 +355,7 @@ def run() -> int:
             self.file_label = QLabel("파일을 선택하거나 창에 끌어다 놓으세요.")
             self.file_label.setAccessibleName("Selected audio file")
             self.file_meta_label = QLabel("길이: -")
-            self.model_status_label = QLabel(_model_status_text(ENGINE_NAMES[default_engine_id()], False))
+            self.model_status_label = QLabel("출력: 20분 ZIP")
             status_row = QHBoxLayout()
             status_row.addWidget(self.file_label)
             status_row.addStretch(1)
@@ -344,7 +380,7 @@ def run() -> int:
             self.stop_button.setEnabled(False)
             self.export_button.setEnabled(False)
             self.record_button.setToolTip("Record from the default microphone.")
-            self.stop_record_button.setToolTip("Stop recording, load it, and transcribe if the selected model is ready.")
+            self.stop_record_button.setToolTip("Stop recording, load it, and create a 20-minute chunk ZIP.")
             self.play_button.setToolTip("Play the opened audio.")
             self.stop_button.setToolTip("Stop playback.")
             self.export_button.setToolTip("Export the selected range as split WAV segments.")
@@ -427,7 +463,7 @@ def run() -> int:
             self.transcribe_button = QPushButton(PRIMARY_ACTION_TEXT)
             self.transcribe_button.setObjectName("primaryAction")
             self.transcribe_button.setEnabled(False)
-            self.transcribe_button.setToolTip("선택한 음성 파일에서 스크립트를 추출합니다.")
+            self.transcribe_button.setToolTip("선택한 음성을 20분 단위 WAV로 자르고 ZIP으로 묶습니다.")
             primary_row.addWidget(self.transcribe_button)
             primary_row.addWidget(self.progress)
             primary_row.addStretch(1)
@@ -437,7 +473,7 @@ def run() -> int:
             result_layout = QVBoxLayout(result_box)
             self.result_preview = QPlainTextEdit()
             self.result_preview.setReadOnly(True)
-            self.result_preview.setPlaceholderText("추출된 스크립트가 여기에 표시됩니다.")
+            self.result_preview.setPlaceholderText("20분 단위 ZIP 생성 결과가 여기에 표시됩니다.")
             self.result_preview.setAccessibleName("Transcript preview")
             result_layout.addWidget(self.result_preview)
             result_actions = QHBoxLayout()
@@ -481,7 +517,6 @@ def run() -> int:
             self.open_folder_button.clicked.connect(self.open_result_folder)
             self.advanced_box.toggled.connect(self.advanced_content.setVisible)
             self.refresh_engines()
-            QTimer.singleShot(0, self.show_model_settings_if_needed)
 
         def time_spin(self) -> QDoubleSpinBox:
             spin = QDoubleSpinBox()
@@ -533,7 +568,7 @@ def run() -> int:
             self.render_waveform_preview()
             self.update_action_state()
             if auto_transcribe:
-                self.transcribe_recording_if_ready()
+                self.transcribe_selected()
 
         def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt override.
             if event.mimeData().hasUrls():
@@ -581,14 +616,6 @@ def run() -> int:
             self.recording_path = None
             self.recording_finishing = False
             self.update_action_state()
-
-        def transcribe_recording_if_ready(self) -> None:
-            config = self.selected_engine_config()
-            if config is None:
-                self.log.appendPlainText("Recording loaded. Choose a ready model to transcribe.")
-                return
-            self.log.appendPlainText(f"Auto transcribing recording with {ENGINE_NAMES[config.engine_id]}.")
-            self.start_job([config])
 
         def probe_duration(self) -> None:
             if self.input_path is None:
@@ -680,16 +707,8 @@ def run() -> int:
             self.log.appendPlainText(f"Exported {len(commands)} segment(s) to {output_dir}")
 
         def refresh_engines(self) -> None:
-            config = self.selected_engine_config()
-            if config is None:
-                self.model_status_label.setText(_model_status_text(ENGINE_NAMES[default_engine_id()], False))
-            else:
-                self.model_status_label.setText(_model_status_text(ENGINE_NAMES[config.engine_id], True))
+            self.model_status_label.setText("출력: 20분 ZIP")
             self.update_action_state()
-
-        def show_model_settings_if_needed(self) -> None:
-            if not self.ready_engine_configs():
-                self.show_model_settings()
 
         def show_model_settings(self) -> None:
             dialog = QDialog(self)
@@ -857,12 +876,10 @@ def run() -> int:
             self.resume_button.setEnabled(idle)
 
         def transcribe_selected(self) -> None:
-            config = self.selected_engine_config()
-            if config is None:
-                QMessageBox.information(self, "모델 설정 필요", "스크립트 추출 전에 사용할 모델을 준비하세요.")
-                self.show_model_settings()
+            if self.input_path is None or self.total_duration <= 0:
+                QMessageBox.information(self, "음성 파일 필요", "먼저 길이를 읽을 수 있는 음성 파일을 선택하세요.")
                 return
-            self.start_job([config])
+            self.start_zip_worker()
 
         def compare_models(self) -> None:
             configs = self.ready_engine_configs()
@@ -921,9 +938,33 @@ def run() -> int:
             self.update_action_state()
             self.job_thread.start()
 
+        def start_zip_worker(self) -> None:
+            if self.input_path is None:
+                return
+            self.log.appendPlainText("20-minute ZIP job started.")
+            self.job_thread = QThread()
+            self.zip_worker = SplitZipWorker(self.input_path, self.total_duration)
+            self.zip_worker.moveToThread(self.job_thread)
+            self.job_thread.started.connect(self.zip_worker.run)
+            self.zip_worker.log.connect(self.log.appendPlainText)
+            self.zip_worker.failed.connect(self.job_failed)
+            self.zip_worker.finished.connect(self.zip_finished)
+            self.zip_worker.failed.connect(self.job_thread.quit)
+            self.zip_worker.finished.connect(self.job_thread.quit)
+            self.job_thread.finished.connect(self.zip_worker.deleteLater)
+            self.job_thread.finished.connect(self.job_thread.deleteLater)
+            self.job_thread.finished.connect(self.clear_job)
+            self.progress.setVisible(True)
+            self.stop_job_button.setEnabled(True)
+            self.update_action_state()
+            self.job_thread.start()
+
         def stop_job(self) -> None:
             if self.job_worker is not None:
                 self.job_worker.stop()
+                self.log.appendPlainText("Stop requested. Waiting for current command to finish.")
+            if self.zip_worker is not None:
+                self.zip_worker.stop()
                 self.log.appendPlainText("Stop requested. Waiting for current command to finish.")
 
         def job_failed(self, message: str) -> None:
@@ -941,6 +982,15 @@ def run() -> int:
                 self.open_json_button.setEnabled(self.last_transcript_path.with_suffix(".json").exists())
                 self.open_folder_button.setEnabled(True)
 
+        def zip_finished(self, output: str) -> None:
+            path = Path(output)
+            self.log.appendPlainText(f"ZIP written: {path}")
+            self.last_transcript_path = path
+            self.result_preview.setPlainText(f"ZIP 생성 완료:\n{path}")
+            self.open_txt_button.setEnabled(False)
+            self.open_json_button.setEnabled(False)
+            self.open_folder_button.setEnabled(True)
+
         def open_transcript(self) -> None:
             if self.last_transcript_path is not None:
                 _open_path(self.last_transcript_path)
@@ -955,6 +1005,7 @@ def run() -> int:
 
         def clear_job(self) -> None:
             self.job_worker = None
+            self.zip_worker = None
             self.job_thread = None
             self.progress.setVisible(False)
             self.stop_job_button.setEnabled(False)
