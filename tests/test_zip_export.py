@@ -23,13 +23,17 @@ class ZipExportTests(unittest.TestCase):
             self.assertEqual(plan.commands[0][3:6], ["0.000", "-t", "1200.000"])
             self.assertEqual(plan.commands[1][3:6], ["1200.000", "-t", "1200.000"])
             self.assertEqual(plan.commands[2][3:6], ["2400.000", "-t", "100.000"])
-            self.assertEqual([path.name for path in plan.chunk_paths], ["chunk_001.wav", "chunk_002.wav", "chunk_003.wav"])
+            self.assertIn("-c:a", plan.commands[0])
+            self.assertIn("aac", plan.commands[0])
+            self.assertIn("-b:a", plan.commands[0])
+            self.assertIn("64k", plan.commands[0])
+            self.assertEqual([path.name for path in plan.chunk_paths], ["chunk_001.m4a", "chunk_002.m4a", "chunk_003.m4a"])
 
     def test_create_zip_archive_adds_chunk_files_by_name(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            chunk_1 = root / "chunk_001.wav"
-            chunk_2 = root / "chunk_002.wav"
+            chunk_1 = root / "chunk_001.m4a"
+            chunk_2 = root / "chunk_002.m4a"
             chunk_1.write_bytes(b"one")
             chunk_2.write_bytes(b"two")
             zip_path = root / "chunks.zip"
@@ -37,8 +41,8 @@ class ZipExportTests(unittest.TestCase):
             create_zip_archive(zip_path, [chunk_1, chunk_2])
 
             with zipfile.ZipFile(zip_path) as archive:
-                self.assertEqual(archive.namelist(), ["chunk_001.wav", "chunk_002.wav"])
-                self.assertEqual(archive.read("chunk_001.wav"), b"one")
+                self.assertEqual(archive.namelist(), ["chunk_001.m4a", "chunk_002.m4a"])
+                self.assertEqual(archive.read("chunk_001.m4a"), b"one")
 
 
 if __name__ == "__main__":

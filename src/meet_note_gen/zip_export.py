@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .audio import TimeRange, build_chunk_commands
+from .audio import TimeRange, chunk_ranges
 
 
 TWENTY_MINUTES_SECONDS = 20 * 60
@@ -26,8 +26,33 @@ def build_split_zip_plan(input_path: Path, output_root: Path, source_range: Time
     work_dir = output_root / name
     chunks_dir = work_dir / "chunks"
     zip_path = output_root / f"{name}.zip"
-    commands = build_chunk_commands(input_path, chunks_dir, source_range, TWENTY_MINUTES_SECONDS)
+    commands = build_m4a_chunk_commands(input_path, chunks_dir, source_range, TWENTY_MINUTES_SECONDS)
     return SplitZipPlan(work_dir, chunks_dir, zip_path, commands, [Path(command[-1]) for command in commands])
+
+
+def build_m4a_chunk_commands(input_path: Path, output_dir: Path, source_range: TimeRange, chunk_seconds: int) -> list[list[str]]:
+    output_dir = Path(output_dir)
+    return [
+        [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{item.start:.3f}",
+            "-t",
+            f"{item.duration:.3f}",
+            "-i",
+            str(input_path),
+            "-vn",
+            "-ac",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "64k",
+            str(output_dir / f"chunk_{index:03d}.m4a"),
+        ]
+        for index, item in enumerate(chunk_ranges(source_range, chunk_seconds), 1)
+    ]
 
 
 def create_zip_archive(zip_path: Path, files: list[Path]) -> Path:

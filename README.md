@@ -37,7 +37,7 @@ Models and runners are not bundled in the app. Use `모델 설정` -> `설치하
 - Generate an ffmpeg waveform preview.
 - Play and stop audio through Qt Multimedia.
 - Create a ZIP from the selected audio with one primary `20분 ZIP 만들기` button.
-- Split the full audio into 20-minute WAV chunks before zipping.
+- Split the full audio into 20-minute M4A chunks before zipping.
 - Preview the ZIP path and open the result folder after completion.
 - Set trim start/end from the current playback position or numeric seconds.
 - Cut a duration from the end.

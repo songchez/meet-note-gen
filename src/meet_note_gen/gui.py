@@ -463,7 +463,7 @@ def run() -> int:
             self.transcribe_button = QPushButton(PRIMARY_ACTION_TEXT)
             self.transcribe_button.setObjectName("primaryAction")
             self.transcribe_button.setEnabled(False)
-            self.transcribe_button.setToolTip("선택한 음성을 20분 단위 WAV로 자르고 ZIP으로 묶습니다.")
+            self.transcribe_button.setToolTip("선택한 음성을 20분 단위 M4A로 자르고 ZIP으로 묶습니다.")
             primary_row.addWidget(self.transcribe_button)
             primary_row.addWidget(self.progress)
             primary_row.addStretch(1)
