@@ -28,7 +28,7 @@ uv run python -m meet_note_gen
   - SenseVoiceSmall INT8 model and sherpa-onnx runner.
   - Whisper.cpp `whisper-cli.exe` and `large-v3-turbo-q5` model.
 
-Models and runners are not bundled in the app. Use `모델 설정` -> `자동 설치` for SenseVoice; it downloads both the model and the Windows x64 sherpa-onnx runner. Other engines can still be wired manually from the same screen.
+Models and runners are not bundled in the app. Use `모델 설정` -> `설치하고 사용` for SenseVoice; it downloads both the model and the Windows x64 sherpa-onnx runner, saves the paths, and selects it immediately. Other engines can still be wired manually from the same screen.
 
 ## Current Features
 

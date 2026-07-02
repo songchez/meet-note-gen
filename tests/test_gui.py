@@ -4,12 +4,15 @@ from pathlib import Path
 from meet_note_gen.engines import EngineStatus
 from meet_note_gen.gui import (
     PRIMARY_ACTION_TEXT,
+    _apply_installed_assets,
     _display_path,
     _engine_status_text,
+    _model_action_labels,
     _model_status_text,
     _open_path_command,
     _qt_import_error_message,
 )
+from meet_note_gen.model_catalog import catalog_by_engine
 
 
 class GuiTests(unittest.TestCase):
@@ -45,6 +48,24 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(_open_path_command("win32", "C:/out"), ["explorer", "C:/out"])
         self.assertEqual(_open_path_command("darwin", "/tmp/out"), ["open", "/tmp/out"])
         self.assertEqual(_open_path_command("linux", "/tmp/out"), ["xdg-open", "/tmp/out"])
+
+    def test_apply_installed_assets_selects_ready_engine_paths(self):
+        config = {"engines": {}}
+
+        _apply_installed_assets(config, "sensevoice", "C:/models/sensevoice", "C:/engines/sherpa.exe")
+
+        self.assertEqual(config["selected_engine_id"], "sensevoice")
+        self.assertEqual(config["engines"]["sensevoice"]["model_path"], "C:/models/sensevoice")
+        self.assertEqual(config["engines"]["sensevoice"]["executable"], "C:/engines/sherpa.exe")
+
+    def test_auto_install_model_uses_one_action_button(self):
+        sensevoice = catalog_by_engine()["sensevoice"]
+        qwen3 = catalog_by_engine()["qwen3"]
+
+        self.assertEqual(_model_action_labels(sensevoice, EngineStatus(False, "Choose runner file"), False), ("설치하고 사용",))
+        self.assertEqual(_model_action_labels(sensevoice, EngineStatus(True, "Ready"), False), ("사용",))
+        self.assertEqual(_model_action_labels(sensevoice, EngineStatus(True, "Ready"), True), ("재설치",))
+        self.assertEqual(_model_action_labels(qwen3, EngineStatus(False, "Choose runner file"), False), ("사용", "모델 다운로드", "Runner 파일", "모델 폴더"))
 
 
 if __name__ == "__main__":

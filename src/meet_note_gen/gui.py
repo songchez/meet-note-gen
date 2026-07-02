@@ -14,7 +14,7 @@ from .audio import (
 )
 from .engines import ENGINE_NAMES, EngineConfig, EngineStatus, validate_engine
 from .jobs import Job, create_job
-from .model_catalog import catalog_entries, default_engine_id
+from .model_catalog import ModelCatalogEntry, catalog_entries, default_engine_id
 from .model_downloader import install_engine_assets
 from .paths import ensure_app_dirs
 from .recording import next_recording_path
@@ -73,6 +73,24 @@ def _engine_status_text(status: EngineStatus) -> str:
     if status.message == "Choose model path":
         return "모델 선택 필요"
     return status.message
+
+
+def _apply_installed_assets(config: dict, engine_id: str, model_path: str, runner_path: str) -> None:
+    engine_config = config.setdefault("engines", {}).setdefault(engine_id, {})
+    engine_config["model_path"] = model_path
+    if runner_path:
+        engine_config["executable"] = runner_path
+    config["selected_engine_id"] = engine_id
+
+
+def _model_action_labels(catalog: ModelCatalogEntry, status: EngineStatus, selected: bool) -> tuple[str, ...]:
+    if catalog.runner_repo:
+        if selected and status.ok:
+            return ("재설치",)
+        if status.ok:
+            return ("사용",)
+        return ("설치하고 사용",)
+    return ("사용", "모델 다운로드", catalog.runner_label, catalog.model_label)
 
 
 def _open_path_command(platform: str, path: str | Path) -> list[str]:
@@ -252,6 +270,7 @@ def run() -> int:
             self.job_worker: JobWorker | None = None
             self.download_thread: QThread | None = None
             self.download_worker: ModelDownloadWorker | None = None
+            self.refresh_model_settings_table = None
             self.recording_path: Path | None = None
             self.recording_finishing = False
             self.last_transcript_path: Path | None = None
@@ -696,34 +715,49 @@ def run() -> int:
                 for row, catalog in enumerate(catalog_entries()):
                     config = self.engine_config(catalog.engine_id)
                     status = validate_engine(config)
-                    status_text = "사용 중" if status.ok and selected == catalog.engine_id else _engine_status_text(status)
+                    selected_row = status.ok and selected == catalog.engine_id
+                    status_text = "사용 중" if selected_row else _engine_status_text(status)
                     table.setItem(row, 0, self.read_only_item(catalog.name))
                     table.setItem(row, 1, self.read_only_item(status_text))
                     table.setItem(row, 2, self.read_only_item(catalog.summary))
                     action = QWidget()
                     buttons = QGridLayout(action)
                     buttons.setContentsMargins(0, 0, 0, 0)
-                    use_button = QPushButton("사용")
-                    download_button = QPushButton("자동 설치" if catalog.runner_repo else "모델 다운로드")
-                    runner_button = QPushButton(catalog.runner_label)
-                    model_button = QPushButton(catalog.model_label)
-                    use_button.setEnabled(status.ok)
-                    use_button.clicked.connect(lambda _=False, key=catalog.engine_id: set_selected(key))
-                    download_button.setEnabled(self.download_thread is None)
-                    download_button.clicked.connect(lambda _=False, key=catalog.engine_id: self.start_model_download(key))
-                    runner_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_executable(key), refresh_table()))
-                    model_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_model(key), refresh_table()))
-                    buttons.addWidget(use_button, 0, 0)
-                    buttons.addWidget(download_button, 0, 1)
-                    buttons.addWidget(runner_button, 0, 2)
-                    buttons.addWidget(model_button, 0, 3)
+                    labels = _model_action_labels(catalog, status, selected_row)
+                    if catalog.runner_repo:
+                        action_button = QPushButton(labels[0])
+                        use_existing = status.ok and not selected_row
+                        action_button.setEnabled(status.ok if use_existing else self.download_thread is None)
+                        action_button.clicked.connect(
+                            lambda _=False, key=catalog.engine_id, use_existing=use_existing: set_selected(key)
+                            if use_existing
+                            else self.start_model_download(key)
+                        )
+                        buttons.addWidget(action_button, 0, 0)
+                    else:
+                        use_button = QPushButton(labels[0])
+                        download_button = QPushButton(labels[1])
+                        runner_button = QPushButton(labels[2])
+                        model_button = QPushButton(labels[3])
+                        use_button.setEnabled(status.ok)
+                        use_button.clicked.connect(lambda _=False, key=catalog.engine_id: set_selected(key))
+                        download_button.setEnabled(self.download_thread is None)
+                        download_button.clicked.connect(lambda _=False, key=catalog.engine_id: self.start_model_download(key))
+                        runner_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_executable(key), refresh_table()))
+                        model_button.clicked.connect(lambda _=False, key=catalog.engine_id: (self.choose_model(key), refresh_table()))
+                        buttons.addWidget(use_button, 0, 0)
+                        buttons.addWidget(download_button, 0, 1)
+                        buttons.addWidget(runner_button, 0, 2)
+                        buttons.addWidget(model_button, 0, 3)
                     table.setCellWidget(row, 3, action)
 
+            self.refresh_model_settings_table = refresh_table
             refresh_table()
             close_button = QPushButton("닫기")
             close_button.clicked.connect(dialog.accept)
             layout.addWidget(close_button)
             dialog.exec()
+            self.refresh_model_settings_table = None
             self.refresh_engines()
 
         def start_model_download(self, engine_id: str) -> None:
@@ -749,19 +783,17 @@ def run() -> int:
             QMessageBox.warning(self, "모델 다운로드 실패", message)
 
         def model_download_finished(self, engine_id: str, path: str, runner_path: str) -> None:
-            engine_config = self.config.setdefault("engines", {}).setdefault(engine_id, {})
-            engine_config["model_path"] = path
-            if runner_path:
-                engine_config["executable"] = runner_path
-            self.config["selected_engine_id"] = engine_id
+            _apply_installed_assets(self.config, engine_id, path, runner_path)
             _save_config(self.config)
             self.log.appendPlainText(f"모델 다운로드 완료: {path}")
             if runner_path:
                 self.log.appendPlainText(f"Runner 설치 완료: {runner_path}")
             self.refresh_engines()
+            if self.refresh_model_settings_table is not None:
+                self.refresh_model_settings_table()
             status = validate_engine(self.engine_config(engine_id))
             if status.ok:
-                QMessageBox.information(self, "모델 다운로드 완료", "모델이 준비됐습니다.")
+                QMessageBox.information(self, "모델 다운로드 완료", "설치가 끝났고 바로 사용할 수 있습니다.")
             else:
                 QMessageBox.information(self, "모델 다운로드 완료", f"모델은 저장했습니다. {_engine_status_text(status)} 단계가 남았습니다.")
 
